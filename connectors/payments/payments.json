@@ -1,0 +1,5 @@
+{
+  "description": "The payments port: its operations and the pay port command, which holds the payment gate call for every bank; a connector to one bank (Asaas) is its own component.",
+  "dependencies": [],
+  "type": "payments"
+}

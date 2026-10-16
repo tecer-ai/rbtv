@@ -1737,6 +1737,72 @@ test("an agent reads and withdraws only its own pending requests", () => {
   assert.equal(cli(workspace, ['payment', 'list', '--state', 'nope']).err, 'unknown state: nope\nchoose from pending, approved, sent, uncertain, refused, cancelled, failed\nNothing changed.\nignite payment -h');
 });
 
+// ───────────────────────────── the provider → connector rename (phase 2 of the connector architecture)
+// Config key, option, JSON fields, loader, help and pages say connector. The ledger's columns keep their
+// provider* names until the ledger next changes (loose end 7), and the older spellings --provider and
+// payments.providers stay accepted until the next deploy: a production line that says provider is allowed
+// only as a ledger column (SQL or the column comment in payments.js) or when marked `older spelling`.
+
+const PRODUCTION = ['payments.js', 'payment-runner.js', 'payment-webhook.js', 'payment-panel.js', 'cli.js', 'config.js', 'daemon.js', 'help.js'];
+const COLUMN_LINE = /SELECT|INSERT|UPDATE|CREATE|INDEX|FROM payments|WHERE|SET |AS connector|column|loose end 7/;
+
+test('the payment code says connector: provider survives only as a ledger column or a marked older spelling', () => {
+  const offending = [];
+  for (const file of PRODUCTION) {
+    fs.readFileSync(path.join(__dirname, file), 'utf8').split(/\r?\n/).forEach((line, i) => {
+      if (!/\bproviders?\b/i.test(line) && !/\bprovider_(id|status)\b/.test(line) && !/[pP]roviderId|[pP]roviderStatus|loadProvider/.test(line)) return;
+      if (/older spelling/.test(line)) return;
+      if (file === 'payments.js' && COLUMN_LINE.test(line)) return;
+      offending.push(`${file}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offending, []);
+  const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'rbtv', 'capabilities', 'templates', 'ignite-config.schema.json'), 'utf8'));
+  const payments = schema.properties.payments.properties;
+  assert.ok(payments.connectors, 'the config schema names payments.connectors');
+  assert.match(payments.providers?.description || '', /older spelling/, 'payments.providers is documented as the older spelling');
+  const { helpPage } = require('./help.js');
+  for (const page of ['payment', 'payment request', 'payment show', 'payment list', 'payment cancel']) {
+    const text = helpPage(page);
+    assert.match(text, /connector/, `${page} help says connector`);
+    for (const line of text.split('\n')) {
+      if (/provider/i.test(line)) assert.match(line, /--provider/, `${page} help: "${line}" names provider only for the --provider spelling`);
+    }
+  }
+  const { paymentsConfig, loadConfig } = require('./config.js');
+  const workspace = installation();
+  assert.deepEqual(paymentsConfig(loadConfig(workspace)), { webhookPort: 8787, connectors: ['asaas'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
+  const { loadConnector } = require('./payment-webhook.js');
+  assert.equal(typeof loadConnector, 'function');
+  const { publicRow } = require('./payments.js');
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  const row = publicRow(gate.request({ agent: 'sara', conversationKey: KEY, connector: 'asaas', method: 'pix', recipient: { key: 'kenu@example.com' }, amountCents: 100 }));
+  gate.close();
+  assert.equal(row.connector, 'asaas');
+  assert.ok('connector_id' in row && 'connector_status' in row);
+  assert.deepEqual(Object.keys(row).filter((k) => /provider/.test(k)), []);
+});
+
+test('ignite payment request takes --connector, still --provider as the older spelling, and refuses both', () => {
+  const workspace = installation();
+  const named = cli(workspace, ['--json', 'payment', 'request', '--connector', 'asaas', '--request', REQUEST]);
+  assert.equal(named.code, 0, named.err);
+  const row = JSON.parse(named.out);
+  assert.equal(row.connector, 'asaas');
+  assert.equal(row.connector_id, null);
+  assert.equal(row.connector_status, null);
+  assert.ok(!('provider' in row) && !('provider_id' in row) && !('provider_status' in row));
+  const older = cli(workspace, ['--json', 'payment', 'request', '--provider', 'asaas', '--request', REQUEST]);
+  assert.equal(older.code, 0, older.err);
+  assert.equal(JSON.parse(older.out).connector, 'asaas');
+  const both = cli(workspace, ['payment', 'request', '--connector', 'asaas', '--provider', 'asaas', '--request', REQUEST]);
+  assert.equal(both.code, 1);
+  assert.equal(both.err, 'payment request takes --connector <name>; --provider is its older spelling: give one\nNothing changed.\nignite payment -h');
+  const neither = cli(workspace, ['payment', 'request', '--request', REQUEST]);
+  assert.equal(neither.err, 'payment request requires --connector <name>\nNothing changed.\nignite payment -h');
+  assert.match(cli(workspace, ['payment', 'show', 'P-0001']).out, /^P-0001 {2}refused: payments are off\n(.*\n)*Connector {2}asaas pix, id -, receipt -\n$/);
+});
+
 (async () => {
   let failed = 0;
   for (const { name, fn } of tests) {

@@ -367,6 +367,54 @@ test('a DM agent board post goes to the DM that conversations.open returns, neve
   assert.deepEqual(posts.map((post) => post.channel), ['DOWNER']);
 });
 
+// Phase 2 of the connector architecture: outbox.js and `message send` call one send function, the module
+// connectors/messaging/capabilities/tools/message/lib/send.js. The test fails when either caller stops
+// resolving to that module's export, or when a delivery no longer goes through it.
+const SEND_MODULE = path.resolve(__dirname, '..', '..', '..', '..', '..', 'connectors', 'messaging', 'capabilities', 'tools', 'message', 'lib', 'send.js');
+const MESSAGE_COMMAND = path.resolve(SEND_MODULE, '..', '..', 'message.js');
+
+test('outbox.js and message send resolve to the one send function', async (store) => {
+  const sendModule = require(SEND_MODULE);
+  assert.equal(typeof sendModule.send, 'function');
+  assert.equal(require('./outbox.js').sendModule, sendModule, 'outbox.js shares the module');
+  assert.equal(require(MESSAGE_COMMAND).sendModule, sendModule, 'message.js shares the module');
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-send-')), 'out.txt');
+  fs.writeFileSync(file, 'x');
+  store.enqueueOutbox({ id: 'r1', conversationKey: key, payload: { text: 'hello', files: [file] } });
+  const original = sendModule.send;
+  const seen = [];
+  sendModule.send = async (operations, input) => {
+    seen.push({ operations: Object.keys(operations).sort(), input });
+    return original(operations, input);
+  };
+  try {
+    const slack = markSlack();
+    const [result] = await deliverPending(store, { slack });
+    assert.equal(result.delivered, true);
+    assert.deepEqual(slack.calls, ['post hello', `upload ${file}`]);
+    assert.equal(seen.length, 1, 'one delivery, one call of the shared send function');
+    assert.deepEqual(seen[0].operations, ['message.file', 'message.send']);
+    assert.deepEqual([seen[0].input.group, seen[0].input.thread, seen[0].input.text, seen[0].input.files, seen[0].input.clientId], ['C1', '1.1', 'hello', [file], 'r1']);
+  } finally {
+    sendModule.send = original;
+  }
+  const row = store.db.prepare('SELECT * FROM outbox WHERE id=?').get('r1');
+  assert.deepEqual([row.channel, row.ts, JSON.parse(row.posted)], ['C1', '9.1', ['9.1', '9.2']]);
+});
+
+test('a reply text over 12,000 characters is delivered as a file through the shared send function', async (store) => {
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.enqueueOutbox({ id: 'long', conversationKey: key, payload: { text: 'y'.repeat(12001) } });
+  const slack = markSlack();
+  const [result] = await deliverPending(store, { slack });
+  assert.equal(result.delivered, true);
+  assert.equal(slack.calls.length, 1);
+  assert.match(slack.calls[0], /^upload .*message\.md$/);
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const store = new Store(':memory:');

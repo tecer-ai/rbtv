@@ -301,19 +301,13 @@ test('post association', () => {
   } finally {
     store.close();
   }
-  const dm = run(['post', '--text', 'dm note', '--audio'], { env: { RBTV_AGENT_HOME: dmHome } });
-  assert.equal(dm.code, 0);
+  // The DM agent's channel is the owner's direct conversation, a contact: a new thread there goes through
+  // the message port command (connector architecture, phase 2); --thread into a held conversation stays.
+  assert.throws(() => run(['post', '--text', 'dm note', '--audio'], { env: { RBTV_AGENT_HOME: dmHome } }),
+    /^post refused: this agent's channel is the owner's direct conversation, a contact; use message send --to UOWNER --via slack TEXT\. Nothing changed\.$/);
   const dmStore = new Store(path.join(dmHome, 'runtime', 'ignite', 'state.sqlite'));
   try {
-    const pending = dmStore.pendingOutbox();
-    assert.equal(pending.length, 1);
-    assert.equal(pending[0].as_root, true);
-    assert.equal(pending[0].payload.audio, true);
-    assert.equal(pending[0].payload.imUser, 'UOWNER');
-    const conv = dmStore.getConversation(pending[0].conversation_key);
-    assert.equal(conv.activated, true);
-    assert.equal(conv.channel, 'UOWNER');
-    assert.equal(conv.agent, 'master');
+    assert.equal(dmStore.pendingOutbox().length, 0);
   } finally {
     dmStore.close();
   }

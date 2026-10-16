@@ -229,6 +229,17 @@ test('a payments section refuses an unknown field, a bad port, provider, time zo
   }
 });
 
+test('payments.connectors names the accounts; payments.providers is the older spelling; both given is refused', (dir) => {
+  writeConfig(dir, { payments: { connectors: ['otherbank'] } });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 8787, connectors: ['otherbank'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
+  writeConfig(dir, { payments: { providers: ['otherbank'] } });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 8787, connectors: ['otherbank'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
+  writeConfig(dir, { payments: { connectors: ['asaas'], providers: ['asaas'] } });
+  assert.throws(() => loadConfig(dir), /^Error: payments.connectors replaces payments.providers: give one$/);
+  writeConfig(dir, { payments: { connectors: 'asaas' } });
+  assert.throws(() => loadConfig(dir), /^Error: payments.connectors must be a list of connector names, such as \["asaas"\]$/);
+});
+
 if (failures.length) {
   console.log(`FAIL ${failures.length}`);
   process.exit(1);
