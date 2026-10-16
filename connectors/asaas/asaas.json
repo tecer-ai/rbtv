@@ -1,4 +1,10 @@
 {
   "description": "Asaas bank account for agents: the asaas command reads balance, statement and Pix keys and pays by Pix key, QR code, bill or top-up through Ignite's payment gate, whose Asaas withdrawal validation it carries, and the Asaas documentation is available as an MCP server.",
-  "dependencies": []
+  "dependencies": [],
+  "type": "payments",
+  "provides": [
+    "payment.send",
+    "payment.read",
+    "payment.validate"
+  ]
 }

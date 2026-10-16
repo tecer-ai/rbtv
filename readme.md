@@ -147,6 +147,8 @@ The `final-act` skill in `meta/final-act` closes a session: it checks every requ
 
 Each component's record, `<module>/<component>/<component>.json`, lists the outside software the component requires, with the command that installs each one. `rbtv show <module>/<component>` prints that list. `rbtv doctor` reports which of the installed components' dependencies are present on this machine and prints the install command of each one it did not find. rbtv never runs an install command.
 
+A record may also name the port the component is listed under (`type`), the other ports it serves and the operations it `provides` or `needs`, such as `message.send`; a connector under `connectors/` must name its `type`, and the installer refuses a need no component provides. The [component record](core/rbtv/capabilities/glossary/component-json.md) entry states the fields.
+
 **Runtime CDN (no install — loaded at render time):**
 
 | Resource | Required by |

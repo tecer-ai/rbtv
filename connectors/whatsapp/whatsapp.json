@@ -10,5 +10,11 @@
       "install": "https://github.com/openclaw/wacli/releases/latest",
       "command": "wacli"
     }
+  ],
+  "type": "messaging",
+  "provides": [
+    "message.send",
+    "message.history",
+    "message.file"
   ]
 }

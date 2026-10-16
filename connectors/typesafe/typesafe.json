@@ -5,5 +5,9 @@
       "name": "python",
       "install": "https://www.python.org/downloads/"
     }
+  ],
+  "type": "judgment",
+  "provides": [
+    "judgment.ask"
   ]
 }

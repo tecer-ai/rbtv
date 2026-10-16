@@ -10,5 +10,10 @@
       "install": "python -m pip install requests",
       "python_package": "requests"
     }
+  ],
+  "type": "media",
+  "provides": [
+    "media.transcribe",
+    "media.speak"
   ]
 }

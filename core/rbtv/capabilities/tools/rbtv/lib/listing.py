@@ -606,6 +606,9 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
         out.update(description=description,
                    dependencies=list(source_comp.get("dependencies") or []),
                    source_entry=(str(source_path) if source_path else ""))
+        for field in ("type", "serves", "provides", "needs"):
+            if field in source_comp:
+                out[field] = source_comp[field]
         repo = source_comp.get("repository")
         if repo and source_path is not None:
             checkout = source_path / REPOSITORY_DIR
@@ -668,6 +671,14 @@ def print_show(data: dict) -> None:
         _say("Dependencies: " + (", ".join(d["name"] for d in dependencies) or "none"))
         for d in dependencies:
             print(f"  Install {d['name']}: {d['install']}")
+        if sel.get("type") or sel.get("serves"):
+            served = sel.get("serves") or []
+            _say(f"Type: {sel.get('type') or 'none'}"
+                 + (f"; serves {', '.join(served)}" if served else ""))
+        if sel.get("provides"):
+            _say("Provides: " + ", ".join(sel["provides"]))
+        if sel.get("needs"):
+            _say("Needs: " + ", ".join(sel["needs"]))
         repo = sel.get("repository") or {}
         if repo:
             _say(f"Repository: {repo.get('url', '')} ({repo.get('branch', '')})")

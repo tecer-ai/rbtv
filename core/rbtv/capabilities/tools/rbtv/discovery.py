@@ -44,6 +44,12 @@ COMPONENT_FOLDERS = (*MD_FOLDERS, *JSON_FOLDERS, "capabilities",
 # module of this name would share the id, so scan refuses it.
 LOCAL_MODULE = "local"
 LOCAL_SOURCE = "rbtv"
+# The module whose components are connectors: each record names the port it is
+# listed under (`type`), and may name the other ports it covers (`serves`), the
+# operations it delivers (`provides`) and those it requires (`needs`). The
+# four fields are optional on every other record.
+CONNECTORS_MODULE = "connectors"
+PORT_FIELDS = ("type", "serves", "provides", "needs")
 
 
 class Refuse(Exception):
@@ -176,6 +182,11 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
                              f"component folder {sub} has no {record_path.name}",
                              str(record_path))
             data = _record(record_path, "component-json")
+            if top.name == CONNECTORS_MODULE and "type" not in data:
+                raise Refuse("type-missing",
+                             f"{record_path}: a component under {CONNECTORS_MODULE}/ "
+                             "names the port it is listed under in 'type' "
+                             "(for example messaging or payments)", str(record_path))
             cid = f"{top.name}/{sub.name}"
             found[cid] = {
                 "id": cid, "tree": tree, "tree_root": str(root),
@@ -187,6 +198,9 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
             }
             if "repository" in data:
                 found[cid]["repository"] = data["repository"]
+            for field in PORT_FIELDS:
+                if field in data:
+                    found[cid][field] = data[field]
     return found
 
 
@@ -216,8 +230,24 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
             raise Refuse("component-duplicate",
                          f"components {first} and {cid} share the name "
                          f"{comp['component']!r}; rename one", comp["path"])
+    unmet_needs(merged)
     pack_rows(merged)
     return merged, shadowed
+
+
+def unmet_needs(catalog: dict[str, dict]) -> None:
+    """Refuses the first component whose `needs` holds an operation no component
+    of the catalog `provides`. A need is matched by operation name, never by the
+    name of the component that provides it, so a mirror component can provide
+    what a repository component needs."""
+    provided = {op for comp in catalog.values() for op in comp.get("provides") or []}
+    for cid, comp in sorted(catalog.items()):
+        missing = [op for op in comp.get("needs") or [] if op not in provided]
+        if missing:
+            raise Refuse("needs-unmet",
+                         f"{cid} needs {', '.join(missing)}, which no component "
+                         "provides; install or write a component whose record "
+                         "provides it", comp["path"])
 
 
 def pack_rows(catalog: dict[str, dict]) -> list[dict]:

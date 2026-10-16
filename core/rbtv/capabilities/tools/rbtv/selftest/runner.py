@@ -23,7 +23,8 @@ from . import (test_agent_local, test_agents, test_cli, test_discovery, test_doc
                test_surface, test_files, test_record_keys, test_ux_contract, test_packs,
                test_providers, test_subagents, test_component_merge,
                test_listing_types, test_rulings_ops,
-               test_rulings_messages, test_repositories)
+               test_rulings_messages, test_repositories,
+               test_connector_records)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -31,6 +32,7 @@ ORDER = [
     test_discovery.depth_two_is_the_marker,
     test_discovery.three_harnesses,
     test_discovery.predecessor_sweep_cannot_reach,
+    test_connector_records.connector_records,
     test_files.schema_and_frontmatter,
     test_files.component_sections,
     test_files.legacy_names,

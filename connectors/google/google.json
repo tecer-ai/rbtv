@@ -11,6 +11,16 @@
       "install": "https://www.python.org/downloads/"
     }
   ],
+  "type": "messaging",
+  "serves": [
+    "calendar",
+    "storage",
+    "media"
+  ],
+  "provides": [
+    "message.send",
+    "message.history"
+  ],
   "repository": {
     "url": "https://github.com/tecer-ai/google-tools",
     "branch": "feat/gtools-cli",

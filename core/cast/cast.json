@@ -6,5 +6,8 @@
       "install": "https://nodejs.org/en/download",
       "command": "node"
     }
+  ],
+  "provides": [
+    "agent.run"
   ]
 }

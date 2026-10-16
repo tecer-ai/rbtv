@@ -11,6 +11,16 @@
       "install": "https://www.python.org/downloads/"
     }
   ],
+  "type": "messaging",
+  "provides": [
+    "message.send",
+    "message.receive",
+    "message.history",
+    "message.react",
+    "message.file",
+    "group.manage",
+    "approval.secure"
+  ],
   "repository": {
     "url": "https://github.com/tecer-ai/slack-tools",
     "branch": "feat/stools-cli",

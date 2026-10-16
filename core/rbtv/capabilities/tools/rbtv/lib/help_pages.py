@@ -22,7 +22,7 @@ Discover
   search WORDS  Find modules, components, files and packs whose name or description
                 holds every word.
   show NAME     Everything about one named entry: description, files, dependencies,
-                where it is installed.
+                port type and operations, where it is installed.
   structure [KIND]  Print the folder convention for one kind, or list the kinds.
                     See: rbtv structure -h
 

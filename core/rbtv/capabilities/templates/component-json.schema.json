@@ -53,6 +53,38 @@
         }
       }
     },
+    "type": {
+      "description": "The port the component is listed under, in lower-case kebab-case (messaging, payments, media). Required for a component under connectors/, which discovery.py refuses without it; optional elsewhere.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "serves": {
+      "description": "Other ports the component also covers, beyond type (Google: calendar, storage, media). Lower-case kebab-case names.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      }
+    },
+    "provides": {
+      "description": "Operations the component delivers, each <noun>.<verb> in lower-case kebab-case (message.send). discovery.py resolves every component's needs against them.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+      }
+    },
+    "needs": {
+      "description": "Operations the component requires another component to provide, each <noun>.<verb> (agent.run). discovery.py refuses a record whose need no component provides.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+      }
+    },
     "repository": {
       "description": "Optional git checkout. discovery.py loads this object; the checkout is not required to exist.",
       "type": "object",
