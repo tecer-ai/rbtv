@@ -24,8 +24,9 @@
 //   3. sends each approved request not yet claimed: claims it (once only), runs `<provider> --json pay execute <id>`
 //      with the request on stdin, and records sent, with the provider's id, status and receipt; failed only when
 //      the tool answers {"created": false} (the bank refused it, or it was never called) or the program could not be
-//      started; otherwise (a timeout,
-//      a crash, no operation id) uncertain, which keeps counting toward the limits. A request the owner approved
+//      started (Node refused the launch, at once or in its callback); otherwise (a timeout, a crash, no operation id)
+//      uncertain, which keeps counting toward the limits. An outcome the ledger could not record (it was busy) is
+//      recorded on a later pass, every 30 s, without running the tool again. A request the owner approved
 //      while its recipient was unchecked (payments.js unchecked; a ledger of an earlier release can hold one) is
 //      never run: it fails;
 //   4. reads each sent operation with `<provider> --json pay status <id>` every 5 s for its first 10 minutes, then
@@ -35,7 +36,10 @@
 //   6. updates each request message whose state changed: the buttons go once it is not pending;
 //   7. tells the requesting conversation each outcome once per state (refused by the owner or by Ignite's
 //      check, failed, uncertain, sent and final or sent 10 minutes ago): a wake with the outcome as its note,
-//      or, when its work does not wait for workers, a system message posted in its thread.
+//      or, when its work does not wait for workers, a system message posted in its thread. The conversation is
+//      found under its newest key (store.js followConversation). The agent store records the notice with its wake or
+//      post (store.js notify), so a retry never tells it twice; a try that fails is retried every 30 s, and after
+//      20 in one service run the outcome is marked told and logged as notify-lost.
 //   A Slack call that fails is retried after 30 s.
 //   stop() → Promise settled when the pass in flight ends; no pass starts after it.
 // outcomeText(gate, row) → the note an outcome wakes the conversation with.
@@ -49,16 +53,28 @@ const RETRY_MS = 30_000;
 const RESOLVE_TRIES = 3;
 // A request still unchecked this long after it was made fails at its next failed lookup, even after a restart.
 const RESOLVE_FOR_MS = 10 * 60_000;
+// An outcome the agent store keeps refusing is given up after this many tries, RETRY_MS apart (about 10 minutes).
+const NOTIFY_TRIES = 20;
+
+// A spawn error means the program never ran, so it cannot have made an operation.
+function spawnError(error) {
+  return Boolean(error && typeof error.syscall === 'string' && error.syscall.startsWith('spawn'));
+}
 
 function defaultRun({ env, cwd }) {
   return (command, args, input) => new Promise((resolve) => {
-    const child = execFile(command, args, { env: env(), cwd, timeout: RUN_MS, maxBuffer: 1024 * 1024, windowsHide: true },
-      (error, stdout, stderr) => {
-        const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
-        // A spawn error means the program never ran, so it cannot have made an operation.
-        const notStarted = Boolean(error && typeof error.syscall === 'string' && error.syscall.startsWith('spawn'));
-        resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || error?.message || ''), notStarted });
-      });
+    let child;
+    try {
+      child = execFile(command, args, { env: env(), cwd, timeout: RUN_MS, maxBuffer: 1024 * 1024, windowsHide: true },
+        (error, stdout, stderr) => {
+          const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
+          resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || error?.message || ''), notStarted: spawnError(error) });
+        });
+    } catch (error) {
+      // Node throws, instead of calling back, the spawn errors it does not count as run-time ones (ENAMETOOLONG, E2BIG).
+      resolve({ code: 1, stdout: '', stderr: String(error?.message || error), notStarted: spawnError(error) });
+      return;
+    }
     child.stdin.on('error', () => {});
     child.stdin.end(input);
   });
@@ -103,6 +119,8 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   const launch = run || defaultRun({ env, cwd });
   const nextTry = new Map();
   const resolveTries = new Map();
+  const notifyTries = new Map();
+  const unrecorded = new Map();
   let running = null;
   let halted = false;
 
@@ -120,7 +138,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   }
 
   function conversationOf(row) {
-    try { return store(row.agent)?.getConversation(row.conversation_key) || null; } catch { return null; }
+    try { return store(row.agent)?.followConversation(row.conversation_key) || null; } catch { return null; }
   }
 
   async function tool(row, verb, input = publicRow(row)) {
@@ -195,22 +213,41 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
     if (!gate.claim(row.id)) return;
     note({ action: 'send', id: row.id, provider: row.provider });
     const result = await tool(row, 'execute', publicRow(gate.get(row.id)));
+    settle(row.id, sendOutcome(row, result));
+  }
+
+  // What a send's run means for its request: sent, failed (nothing can have been paid) or uncertain.
+  function sendOutcome(row, result) {
     const body = lastJson(result.stdout);
     if (result.code === 0 && body?.provider_id) {
-      gate.sent(row.id, { providerId: body.provider_id, providerStatus: body.status || null, receiptUrl: body.receipt_url || null });
-      note({ action: 'sent', id: row.id, providerId: String(body.provider_id) });
-    } else if (result.notStarted) {
+      return {
+        state: 'sent', fields: { providerId: body.provider_id, providerStatus: body.status || null, receiptUrl: body.receipt_url || null },
+        log: { action: 'sent', id: row.id, providerId: String(body.provider_id) },
+      };
+    }
+    if (result.notStarted) {
       const reason = `Not sent: Ignite could not start ${row.provider}: ${reasonOf(result)}`.slice(0, 300);
-      const { row: after } = gate.failed(row.id, reason);
-      note({ action: 'send-not-started', id: row.id, state: after?.state || null, reason });
-    } else if (body?.created === false) {
+      return { state: 'failed', reason, log: { action: 'send-not-started', id: row.id, reason } };
+    }
+    if (body?.created === false) {
       const reason = body.reason ? String(body.reason).slice(0, 300) : reasonOf(result);
-      const { row: after } = gate.failed(row.id, reason);
-      note({ action: 'send-failed', id: row.id, state: after?.state || null, reason });
-    } else {
-      const why = result.code === 0 ? `${row.provider} returned no operation id` : reasonOf(result);
-      gate.uncertain(row.id, `Ignite does not know whether ${row.provider} made it: ${why}`);
-      note({ action: 'send-uncertain', id: row.id, reason: why });
+      return { state: 'failed', reason, log: { action: 'send-failed', id: row.id, reason } };
+    }
+    const why = result.code === 0 ? `${row.provider} returned no operation id` : reasonOf(result);
+    return { state: 'uncertain', reason: `Ignite does not know whether ${row.provider} made it: ${why}`, log: { action: 'send-uncertain', id: row.id, reason: why } };
+  }
+
+  // Records a send's outcome. A ledger that refuses the write (busy) keeps the outcome here, recorded again on a
+  // later pass; the request stays claimed, so it is never sent again.
+  function settle(id, outcome) {
+    try {
+      const { row: after } = outcome.state === 'sent' ? gate.sent(id, outcome.fields)
+        : outcome.state === 'failed' ? gate.failed(id, outcome.reason) : gate.uncertain(id, outcome.reason);
+      unrecorded.delete(id);
+      note({ ...outcome.log, state: after?.state || null });
+    } catch (error) {
+      unrecorded.set(id, outcome);
+      later(`record:${id}`, error, { action: 'record-retry', id, outcome: outcome.state });
     }
   }
 
@@ -260,40 +297,62 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
     }
   }
 
+  // The agent store records the notice under payment:<id>:<state> with its wake or post, so a retry after either
+  // write tells it no second time. A failed try is retried RETRY_MS later; after NOTIFY_TRIES in one service run the
+  // outcome is marked notified and logged as lost.
   function tell(row) {
-    const text = outcomeText(gate, row);
-    const agentStore = store(row.agent);
-    if (!agentStore) {
+    const key = `notify:${row.id}:${row.state}`;
+    if (!due(key)) return;
+    const lost = (reason) => {
       gate.notified(row.id, row.state);
-      note({ action: 'notify-lost', id: row.id, state: row.state, reason: `agent ${row.agent} has no store` });
-      return;
-    }
+      note({ action: 'notify-lost', id: row.id, state: row.state, reason });
+    };
+    let told = null;
     try {
-      if (!agentStore.getConversation(row.conversation_key)) {
-        gate.notified(row.id, row.state);
-        note({ action: 'notify-lost', id: row.id, state: row.state, reason: `conversation ${row.conversation_key} not found` });
+      const agentStore = store(row.agent);
+      if (!agentStore) {
+        lost(`agent ${row.agent} has no store`);
+      } else {
+        // A conversation rekeyed after the request (its first root post) is found under its new key.
+        const conv = agentStore.followConversation(row.conversation_key);
+        if (!conv) {
+          lost(`conversation ${row.conversation_key} not found`);
+        } else {
+          const text = outcomeText(gate, row);
+          told = agentStore.notify({
+            id: `payment:${row.id}:${row.state}`, conversationKey: conv.key, note: text,
+            payload: { text: `System message: ${text}`, audio: false, files: [] },
+          });
+          gate.notified(row.id, row.state);
+          note({ action: 'notify', id: row.id, state: row.state, woke: told.woke, ...(told.inserted ? {} : { already: true }) });
+        }
+      }
+    } catch (error) {
+      const tries = (notifyTries.get(key) || 0) + 1;
+      notifyTries.set(key, tries);
+      if (tries < NOTIFY_TRIES) {
+        later(key, error, { action: 'notify-retry', id: row.id, state: row.state, tries });
         return;
       }
-      const woke = agentStore.wake({ conversationKey: row.conversation_key, note: text });
-      if (!woke.inserted) {
-        agentStore.enqueueOutbox({
-          id: `post:payment:${row.id}:${row.state}`,
-          conversationKey: row.conversation_key,
-          payload: { text: `System message: ${text}`, audio: false, files: [] },
-        });
+      try {
+        lost(`not told after ${tries} tries: ${error.message}`);
+      } catch (markError) {
+        later(key, markError, { action: 'notify-retry', id: row.id, state: row.state, tries });
+        return;
       }
-      gate.notified(row.id, row.state);
-      note({ action: 'notify', id: row.id, state: row.state, woke: Boolean(woke.inserted) });
-    } catch (error) {
-      // Not marked notified: the next pass tries again; a pending wake and a queued post are not duplicated.
-      note({ action: 'notify-retry', id: row.id, state: row.state, reason: error.message });
-      return;
     }
-    kick(row.agent);
+    notifyTries.delete(key);
+    nextTry.delete(key);
+    // The notice is in the agent store, put there now or by a try whose mark the ledger refused.
+    if (told) kick(row.agent);
   }
 
   async function pass() {
     try {
+      for (const [id, outcome] of unrecorded) {
+        if (halted) return;
+        if (due(`record:${id}`)) settle(id, outcome);
+      }
       const work = gate.due({ now: now() });
       for (const row of work.resolve) {
         if (halted) return;

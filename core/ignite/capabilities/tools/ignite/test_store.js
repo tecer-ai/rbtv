@@ -652,6 +652,23 @@ test('rekey moves conversation state but leaves every schedule row unchanged', (
   assert.equal(store.enqueueScheduleWake({ id: 'next', conversationKey: key, scheduleId: 'check' }).inserted, true);
 });
 
+test('a key held outside the store follows every rekey to the newest key; a key a new conversation takes names it', (store) => {
+  const begun = store.beginProactive({
+    id: 'p1', agent: 'master', workspace: 'T1', channel: 'C1', payload: { text: 'report' },
+  });
+  const first = store.markDelivered(begun.outboxId, { channel: 'C1', ts: '8.8' }).conversationKey;
+  assert.equal(store.followConversation(begun.conversationKey).key, 'T1:C1:8.8');
+  store.enqueueOutbox({ id: 'post:again', conversationKey: first, payload: { text: 'again' }, asRoot: true });
+  assert.equal(store.markDelivered('post:again', { channel: 'C1', ts: '9.9' }).conversationKey, 'T1:C1:9.9');
+  assert.equal(store.followConversation(begun.conversationKey).key, 'T1:C1:9.9');
+  assert.equal(store.followConversation(first).key, 'T1:C1:9.9');
+  // The owner writes in the first thread again: its key names that new conversation now.
+  conv(store, first, { rootTs: '8.8' });
+  assert.equal(store.followConversation(first).key, first);
+  assert.equal(store.followConversation(begun.conversationKey).key, 'T1:C1:9.9');
+  assert.equal(store.followConversation('T1:C1:7.7'), null);
+});
+
 test('confirmed posts join existing history once without rebinding the thread', (store) => {
   conv(store);
   store.recordMessage('T1:C1:1.1', ownerMessage('1.1', 'earlier'));

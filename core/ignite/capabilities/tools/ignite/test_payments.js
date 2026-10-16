@@ -1060,14 +1060,46 @@ test('a provider program that cannot be started fails the payment and frees its 
   assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
 });
 
+test('a launch Node refuses before the program runs (a PATH entry too long, an environment too big) fails the payment and frees its amount', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const long = ask(gate);
+  const big = ask(gate);
+  for (const row of [long, big]) gate.resolved(row.id, KENU);
+  // A real asaas program that leaves a mark when it runs; the oversized environment keeps it from starting.
+  const bin = scratch();
+  fs.writeFileSync(path.join(bin, 'asaas'), '#!/bin/sh\ntouch "$0.ran"\n', { mode: 0o755 });
+  const envs = [{ PATH: path.join(scratch(), 'x'.repeat(300)) }, { PATH: bin, BIG: 'y'.repeat(200_000) }];
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace,
+    env: () => envs.shift(), now: () => clock.now });
+  await runner.step();
+  for (const [row, errno] of [[long, 'ENAMETOOLONG'], [big, 'E2BIG']]) {
+    const after = gate.get(row.id);
+    assert.equal(after.state, 'failed');
+    assert.match(after.reason, /^Not sent: Ignite could not start asaas: /);
+    // Linux refuses these launches at once, which Node throws instead of calling back.
+    if (process.platform === 'linux') assert.match(after.reason, new RegExp(errno));
+  }
+  assert.equal(fs.existsSync(path.join(bin, 'asaas.ran')), false);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+});
+
+// Another connection holding a database's write lock, as another process would.
+function lockOf(file) {
+  const db = new DatabaseSync(file);
+  db.exec('BEGIN IMMEDIATE');
+  return { release() { db.exec('ROLLBACK'); db.close(); } };
+}
+const posts = (store) => store.db.prepare("SELECT id, conversation_key FROM outbox WHERE id LIKE 'post:payment:%' ORDER BY rowid").all()
+  .map((r) => ({ ...r }));
+
 test('an outcome the agent store could not take is told on a later pass, once', async () => {
   const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
   const row = ask(gate);
   const store = agentStore();
-  const wake = store.wake.bind(store);
-  let locked = true;
-  store.wake = (args) => { if (locked) throw new Error('database is locked'); return wake(args); };
+  store.db.exec('PRAGMA busy_timeout=50');
+  const lock = lockOf(store.db.location());
   const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n' };
   const stand = tool({ resolve: Array(4).fill(limited) });
   const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
@@ -1077,11 +1109,139 @@ test('an outcome the agent store could not take is told on a later pass, once', 
   }
   assert.deepEqual([gate.get(row.id).state, gate.get(row.id).notified], ['refused', null]);
   assert.deepEqual(wakes(store), []);
-  locked = false;
+  lock.release();
   await runner.step();
   await runner.step();
   assert.equal(gate.get(row.id).notified, 'refused');
   assert.equal(wakes(store).length, 1);
+});
+
+test('an outcome is told once across its wake and its post, when the ledger did not record that it was told', async () => {
+  const { gate, clock, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 50 });
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const store = agentStore();
+  const owner = store.claimNext();
+  store.finishRun(owner.runId, owner.nonce, { invocationNonce: owner.nonce, output: 'asked', disposition: 'waiting_workers' });
+  const kicked = [];
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: workspace, now: () => clock.now,
+    kick: (slug) => kicked.push(slug) });
+  // Each outcome is put in the agent store while another connection holds the ledger, so it is not marked told.
+  const tellLocked = async (id) => {
+    gate.refuse(id);
+    const lock = lockOf(ledgerPath(workspace));
+    await runner.step();
+    lock.release();
+    assert.equal(gate.get(id).notified, null);
+  };
+  // The work waits for workers: a wake. The agent's turn takes that wake and completes the work.
+  await tellLocked(ask(gate).id);
+  assert.equal(wakes(store).length, 1);
+  const woke = store.claimNext();
+  assert.equal(woke.kind, 'wake');
+  store.finishRun(woke.runId, woke.nonce, { invocationNonce: woke.nonce, output: 'heard it', disposition: 'completed' });
+  // Work that no longer waits: a post. The owner's next message then reopens the work.
+  await tellLocked(ask(gate).id);
+  assert.deepEqual(posts(store).map((p) => p.id), ['post:payment:P-0002:refused']);
+  store.acceptOwnerInput({ key: KEY, agent: 'sara', workspace: 'T1', channel: 'C1', rootTs: '1.1',
+    message: { id: 'T1:C1:1.2', role: 'owner', text: 'and now?', team: 'T1', channel: 'C1', ts: '1.2' } });
+  for (let i = 0; i < 3; i++) {
+    clock.now += 30_000;
+    await runner.step();
+  }
+  assert.deepEqual([gate.get('P-0001').notified, gate.get('P-0002').notified], ['refused', 'refused']);
+  assert.deepEqual(wakes(store), ['Payment P-0001 was refused by the owner: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). Nothing was sent.']);
+  assert.deepEqual(posts(store).map((p) => p.id), ['post:payment:P-0002:refused']);
+  // The pass that marks each one told also asks the service to run the agent's queue and outbox.
+  assert.deepEqual(kicked, ['sara', 'sara']);
+});
+
+test('an outcome the agent store keeps refusing is tried every 30 s and given up after 20 tries, logged as lost', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const row = ask(gate);
+  gate.refuse(row.id);
+  const store = agentStore();
+  store.db.exec('PRAGMA busy_timeout=0');
+  const lock = lockOf(store.db.location());
+  const logs = [];
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, log: (e) => logs.push(e) });
+  const tries = () => logs.filter((e) => e.action === 'notify-retry' || e.action === 'notify-lost').length;
+  for (let i = 0; i < 5; i++) await runner.step();
+  assert.equal(tries(), 1);
+  for (let i = 0; i < 19; i++) {
+    clock.now += 30_000;
+    await runner.step();
+  }
+  assert.equal(tries(), 20);
+  assert.equal(gate.get(row.id).notified, 'refused');
+  assert.deepEqual(logs.filter((e) => e.action === 'notify-lost').map((e) => [e.id, e.state, e.reason]),
+    [['P-0001', 'refused', 'not told after 20 tries: database is locked']]);
+  clock.now += 60 * 60_000;
+  await runner.step();
+  assert.equal(tries(), 20);
+  lock.release();
+  assert.deepEqual([wakes(store), posts(store)], [[], []]);
+});
+
+test('a send whose result the ledger could not record is recorded on a later pass and never sent again', async () => {
+  const { gate, clock, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 50 });
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const row = ask(gate);
+  gate.resolved(row.id, KENU);
+  let lock = null;
+  const runs = [];
+  const run = async (command, args) => {
+    runs.push(args[2]);
+    if (args[2] === 'execute') {
+      // The bank took it; meanwhile another connection holds the ledger.
+      lock = lockOf(ledgerPath(workspace));
+      return { code: 0, stdout: '{"provider_id":"tr_confirmed","status":"PENDING","receipt_url":null}\n', stderr: '' };
+    }
+    return { code: 0, stdout: '{"provider_id":"tr_confirmed","status":"DONE","final":true,"ok":true,"receipt_url":"https://r.example/c"}\n', stderr: '' };
+  };
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: workspace, now: () => clock.now, run });
+  await runner.step();
+  assert.deepEqual([gate.get(row.id).state, gate.get(row.id).provider_id], ['approved', null]);
+  lock.release();
+  await runner.step();
+  assert.deepEqual([gate.get(row.id).state, runs], ['approved', ['execute']]);
+  // 30 s later the result is recorded, and the sent payment is followed like any other.
+  clock.now += 30_000;
+  await runner.step();
+  assert.deepEqual([gate.get(row.id).state, gate.get(row.id).provider_id], ['sent', 'tr_confirmed']);
+  clock.now += 5_000;
+  await runner.step();
+  clock.now += 60 * 60_000;
+  for (let i = 0; i < 3; i++) await runner.step();
+  const after = gate.get(row.id);
+  assert.deepEqual([after.state, after.provider_id, after.receipt_url], ['sent', 'tr_confirmed', 'https://r.example/c']);
+  assert.deepEqual(runs, ['execute', 'status']);
+  assert.deepEqual(gate.usage(), { day: 1000, week: 1000, month: 1000 });
+});
+
+test('a scheduled conversation rekeyed by its first reply still gets its request thread and its outcome', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const store = new Store(path.join(scratch(), 'state.sqlite'));
+  store.upsertConversation({ key: KEY, agent: 'sara', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true });
+  store.enqueueScheduleWake({ id: 'schedule:bills:1', conversationKey: KEY, scheduleId: 'bills' });
+  // The timer's turn asks for a payment and replies; the reply's delivery makes it a thread with a new key.
+  const turn = store.claimNext();
+  const row = ask(gate, { conversationKey: turn.conversation_key });
+  store.finishRun(turn.runId, turn.nonce, { invocationNonce: turn.nonce, output: 'asked', disposition: 'completed',
+    outbox: [{ text: 'I asked to pay Kenu.' }] });
+  assert.equal(store.markDelivered(`reply:${turn.runId}:0`, { channel: 'C1', ts: '5.5' }).conversationKey, 'T1:C1:5.5');
+  assert.equal(store.getConversation(row.conversation_key), null);
+  const slack = fakeSlack();
+  const stand = tool({ resolve: RESOLVED_KENU });
+  const runner = createPaymentRunner({ gate, slack: () => slack.client, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run });
+  await runner.step();
+  assert.deepEqual([slack.calls[0].method, slack.calls[0].args[0].channel, slack.calls[0].args[0].threadTs], ['postBlocks', 'C1', '5.5']);
+  gate.refuse(row.id);
+  await runner.step();
+  await runner.step();
+  assert.equal(gate.get(row.id).notified, 'refused');
+  assert.deepEqual(posts(store), [{ id: 'post:payment:P-0001:refused', conversation_key: 'T1:C1:5.5' }]);
 });
 
 test('a prompt posted before the check is redrawn once Ignite has checked the recipient or could not', () => {

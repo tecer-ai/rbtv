@@ -8,6 +8,8 @@
 // close()
 // upsertConversation({ key, agent, workspace, channel, rootTs, activated })
 // getConversation(key) — agent, activated (boolean), workspace (Slack team id)
+// followConversation(key) — the conversation a key held outside this store names now: a conversation rekeyed since
+//   (its first root post) is found under its newest key; a key a new conversation took again names that one
 // activateConversation(key)
 // conversationByThread({ workspace, channel, rootTs })
 // acceptOwnerInput({ key, agent, workspace, channel, rootTs, activated, message, queueId, payload })
@@ -18,6 +20,9 @@
 // getWork(id) / listWork({ conversationKey })
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
+// notify({ id, conversationKey, note, payload }) — one notice told once, in one transaction: a wake carrying note
+//   (queue id wake:<id>), or, when the conversation has no work a wake can take, the post payload (outbox id
+//   post:<id>). Either row existing, in any state, makes it 'duplicate': nothing is inserted. → { inserted, reason, woke }
 // enqueueScheduleWake({ id, conversationKey, scheduleId, workId, details }) — fresh threadless conversation;
 //   conversationKey supplies routing only, workId gates eligibility only. An id already in the queue, in any
 //   state, is 'duplicate' and inserts nothing; other timers' wakes never block it. details, when given, is the
@@ -231,6 +236,11 @@ class Store {
       );
       CREATE INDEX IF NOT EXISTS live_status_rev ON live_status(rev);
       CREATE INDEX IF NOT EXISTS live_status_conversation ON live_status(conversation_key);
+      CREATE TABLE IF NOT EXISTS conversation_moves (
+        old_key TEXT PRIMARY KEY,
+        new_key TEXT NOT NULL,
+        moved_at INTEGER NOT NULL
+      );
     `);
     this.transaction(() => {
       const columns = this.db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name);
@@ -270,6 +280,8 @@ class Store {
       if (!existing) {
         this.db.prepare(`INSERT INTO conversations(key, agent, workspace, channel, root_ts, activated, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)`).run(key, agent, workspace, channel, rootTs, activated ? 1 : 0, now);
+        // The key names a new conversation now, not the one that moved away from it.
+        this.db.prepare('DELETE FROM conversation_moves WHERE old_key=?').run(key);
       } else {
         if (existing.agent !== agent) throw new Error('conversation belongs to another agent');
         if (existing.workspace !== workspace || existing.channel !== channel) {
@@ -285,6 +297,11 @@ class Store {
 
   getConversation(key) {
     return this._conversation(this.db.prepare('SELECT * FROM conversations WHERE key=?').get(key));
+  }
+
+  followConversation(key) {
+    const moved = this.db.prepare('SELECT new_key FROM conversation_moves WHERE old_key=?').get(key);
+    return this.getConversation(moved ? moved.new_key : key);
   }
 
   activateConversation(key) {
@@ -451,21 +468,39 @@ class Store {
   }
 
   wake({ workId = null, conversationKey: conversationKeyValue = null, note = 'worker' } = {}) {
+    return this.transaction(() => this._wake(workId ? this.getWork(workId) : this._wakeTarget(conversationKeyValue), note));
+  }
+
+  _wake(work, note, id = null) {
+    if (!work) return { inserted: false, reason: 'unknown' };
+    if (TERMINAL.has(work.state) || work.state === HELD || work.state === 'waiting_owner') {
+      return { inserted: false, reason: 'refused', workId: work.id };
+    }
+    const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='wake' AND state='pending' AND work_id=?`).get(work.id);
+    if (pending) return { inserted: false, reason: 'duplicate', workId: work.id };
+    const queueId = id || `wake:${work.id}:${randomUUID()}`;
+    this.db.prepare(`INSERT INTO queue
+      (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
+      VALUES (?, ?, 'wake', ?, ?, ?, ?, ?)`).run(
+      queueId, work.conversation_key, json({ note }), work.id, AUTO_PRIORITY, Date.now(), Date.now(),
+    );
+    return { inserted: true, reason: 'queued', workId: work.id, id: queueId };
+  }
+
+  notify({ id, conversationKey: conversationKeyValue, note, payload }) {
+    if (!id || !conversationKeyValue || !note || !payload) throw new Error('notice id, conversation, note and payload required');
+    const wakeId = `wake:${id}`;
+    const postId = `post:${id}`;
     return this.transaction(() => {
-      const work = workId ? this.getWork(workId) : this._wakeTarget(conversationKeyValue);
-      if (!work) return { inserted: false, reason: 'unknown' };
-      if (TERMINAL.has(work.state) || work.state === HELD || work.state === 'waiting_owner') {
-        return { inserted: false, reason: 'refused', workId: work.id };
+      if (this.db.prepare('SELECT id FROM queue WHERE id=?').get(wakeId) || this.db.prepare('SELECT id FROM outbox WHERE id=?').get(postId)) {
+        return { inserted: false, reason: 'duplicate', woke: false };
       }
-      const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='wake' AND state='pending' AND work_id=?`).get(work.id);
-      if (pending) return { inserted: false, reason: 'duplicate', workId: work.id };
-      const id = `wake:${work.id}:${randomUUID()}`;
-      this.db.prepare(`INSERT INTO queue
-        (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
-        VALUES (?, ?, 'wake', ?, ?, ?, ?, ?)`).run(
-        id, work.conversation_key, json({ note }), work.id, AUTO_PRIORITY, Date.now(), Date.now(),
-      );
-      return { inserted: true, reason: 'queued', workId: work.id, id };
+      if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
+      if (this._wake(this._wakeTarget(conversationKeyValue), note, wakeId).inserted) {
+        return { inserted: true, reason: 'woke', woke: true, id: wakeId };
+      }
+      this._enqueueOutbox({ id: postId, conversationKey: conversationKeyValue, payload, clientMsgId: postId });
+      return { inserted: true, reason: 'posted', woke: false, id: postId };
     });
   }
 
@@ -812,6 +847,10 @@ class Store {
     for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions', 'live_status']) {
       this.db.prepare(`UPDATE ${table} SET conversation_key=? WHERE conversation_key=?`).run(newKey, oldKey);
     }
+    // A key held outside this store (a payment's) still finds the conversation: every earlier key points at the newest.
+    this.db.prepare('DELETE FROM conversation_moves WHERE old_key=?').run(newKey);
+    this.db.prepare('UPDATE conversation_moves SET new_key=? WHERE new_key=?').run(newKey, oldKey);
+    this.db.prepare('INSERT OR REPLACE INTO conversation_moves(old_key, new_key, moved_at) VALUES (?, ?, ?)').run(oldKey, newKey, Date.now());
     // Schedules keep their creation reference for routing; it must still satisfy the foreign key.
     this.db.prepare(`DELETE FROM conversations WHERE key=?
       AND NOT EXISTS (SELECT 1 FROM schedules WHERE conversation_key=?)`).run(oldKey, oldKey);
