@@ -14,7 +14,7 @@ Use the word for the component. The outside party is the service; the AI lab acc
 
 A connector lives in one place and is named for its service, as [Component](component.md) names a component that wraps one product. One port is its `type`; the other ports it covers are its `serves`. A connector that reaches two ports still carries one command.
 
-Policy is not the connector's: the payment gate decides in Ignite and `pay` will own it, and `message send` checks a recipient's permission before any connector; the connector resolves, asks and executes.
+Policy is not the connector's: the payment gate decides in Ignite and `pay` holds the gate call, and `message send` checks a recipient's permission before any connector; the connector resolves what `pay` asks (`<connector> pay resolve draft`), executes what Ignite's waking service runs (`pay execute`, `pay status`) and delivers what `message` hands its messaging adapter.
 
 ## Build and check
 
