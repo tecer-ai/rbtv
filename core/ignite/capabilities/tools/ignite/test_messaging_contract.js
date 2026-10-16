@@ -11,15 +11,21 @@
 //     binding or comment. The contract's Checks section defines the kinds.
 //   payload-uses.json: every occurrence of the word `payload` in the files the contract tags `panel`,
 //     with `reads`: the payload field paths read on the line, or through the name the line binds.
-// An entry is the file (relative to this folder), the trimmed line text and the 0-based nth
-// occurrence of that text in the file. A live occurrence not listed fails, a listed one no longer
+// A list is `uses`: each entry the file (relative to this folder), the trimmed line text and the 0-based
+// nth occurrence of that text in the file. A live occurrence not listed fails, a listed one no longer
 // live fails, a kind or reads of "?" fails. Every call:<Method> needs a contract call-site row for
 // that file and method, with a tag, and every row needs a call entry; every read must be a field path
-// of the contract's Slash command or Buttons and forms tables. The inbound fixtures are checked
-// against the contract's inbound event table. `--write-fixture` rewrites both lists from the live
-// occurrences, keeping what is known and putting "?" on each new entry for the author to fill in.
+// of the contract's Slash command or Buttons and forms tables. A file that binds the client or the
+// payload to a name (a binding, call: or "?" entry; every panel file for payload) can gain a call or a
+// read through that name on a line holding neither word, so `files` maps each such file to the sha256
+// of its content (CRLF read as LF) and the test fails when the file changed. The inbound fixtures are
+// checked against the contract's inbound event table. `--write-fixture` rewrites both lists from the
+// live occurrences, keeping what is known and putting "?" on each new entry for the author to fill in;
+// on a changed file it records the new hash and resets that file's binding, call: and reads entries to
+// "?", so the test fails until the author restates by hand what the bound name reaches.
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -34,6 +40,10 @@ const REQUIRED_READS = ['trigger_id', 'actions[0].action_id', 'view.callback_id'
 const read = (file) => fs.readFileSync(file, 'utf8');
 const keyOf = (e) => `${e.file}\u0000${e.line}\u0000${e.nth}`;
 const fixtureOf = (word) => path.join(FIXTURES, `${word}-uses.json`);
+const hashOf = (abs) => crypto.createHash('sha256').update(read(abs).replace(/\r\n/g, '\n')).digest('hex');
+// An entry whose file may bind the client or the payload to a name: hashed, and reset when the file changed.
+const binds = (entry, field) => field === 'reads' || ['binding', '?'].includes(entry.kind) || String(entry.kind).startsWith('call:');
+const boundFiles = (uses, field) => new Set(uses.filter((e) => binds(e, field)).map((e) => e.file));
 
 // The methods of the Slack class: each `  name(` or `  async name(` line of slack.js's class body.
 function slackMethods() {
@@ -68,15 +78,23 @@ function occurrences(files, word) {
   return found;
 }
 
-// The list of `word` and its problems against the live occurrences: a new use, a stale entry, a "?".
-function compare(word, live, field) {
-  const listed = JSON.parse(read(fixtureOf(word)));
+// The list of `word` and its problems against the live occurrences of the files: a new use, a stale
+// entry, a "?", a bound file whose content differs from its recorded hash.
+function compare(word, files, field) {
+  const { files: hashes, uses: listed } = JSON.parse(read(fixtureOf(word)));
+  const live = occurrences(files, word);
   const known = new Set(listed.map(keyOf));
   const alive = new Set(live.map(keyOf));
   const problems = live.filter((e) => !known.has(keyOf(e))).map((e) => `new use of ${word} ${e.at}: ${e.line}: add it to ${word}-uses.json with its ${field}`);
   for (const e of listed) {
     if (!alive.has(keyOf(e))) problems.push(`stale entry in ${word}-uses.json ${e.file}: ${e.line} (${e.nth}): the line is gone; remove it`);
     else if (e[field] === '?' || e[field] === undefined) problems.push(`${word}-uses.json ${e.file}: ${e.line} (${e.nth}): fill in its ${field}`);
+  }
+  const [what, restate] = field === 'kind' ? ['the client', 'its call: and binding entries'] : ['the payload', 'its reads'];
+  for (const file of boundFiles(listed, field)) {
+    const abs = files.find((f) => f.file === file)?.abs;
+    if (!abs || hashes[file] === undefined) problems.push(`file ${file} binds ${what} to a name and ${word}-uses.json holds no hash of it; run --write-fixture`);
+    else if (hashes[file] !== hashOf(abs)) problems.push(`changed file ${file} binds ${what} to a name; re-run --write-fixture and restate ${restate}`);
   }
   return { listed, problems };
 }
@@ -119,10 +137,17 @@ const fits = (value, typeCell) => typeCell.split(/\s+or\s+/).some((type) => (TYP
 
 if (process.argv.includes('--write-fixture')) {
   for (const [word, files, field] of [['slack', productionFiles(), 'kind'], ['payload', panelFiles(), 'reads']]) {
-    const known = new Map(fs.existsSync(fixtureOf(word)) ? JSON.parse(read(fixtureOf(word))).map((e) => [keyOf(e), e[field]]) : []);
-    const entries = occurrences(files, word).map(({ file, line, nth }) => ({ file, line, nth, [field]: known.has(keyOf({ file, line, nth })) ? known.get(keyOf({ file, line, nth })) : '?' }));
-    fs.writeFileSync(fixtureOf(word), `${JSON.stringify(entries, null, 2)}\n`);
-    console.log(`wrote ${word}-uses.json: ${entries.length} entries, ${entries.filter((e) => e[field] === '?').length} to fill in`);
+    const old = fs.existsSync(fixtureOf(word)) ? JSON.parse(read(fixtureOf(word))) : { files: {}, uses: [] };
+    const known = new Map(old.uses.map((e) => [keyOf(e), e[field]]));
+    const uses = occurrences(files, word).map(({ file, line, nth }) => ({ file, line, nth, [field]: known.has(keyOf({ file, line, nth })) ? known.get(keyOf({ file, line, nth })) : '?' }));
+    const hashes = {};
+    for (const file of boundFiles(uses, field)) {
+      hashes[file] = hashOf(files.find((f) => f.file === file).abs);
+      if (old.files[file] === undefined || old.files[file] === hashes[file]) continue;
+      for (const e of uses) if (e.file === file && binds(e, field) && e[field] !== '?') { console.log(`reset ${file}: ${e.line} (${e.nth}): ${JSON.stringify(e[field])} -> "?"`); e[field] = '?'; }
+    }
+    fs.writeFileSync(fixtureOf(word), `${JSON.stringify({ files: hashes, uses }, null, 2)}\n`);
+    console.log(`wrote ${word}-uses.json: ${uses.length} entries, ${uses.filter((e) => e[field] === '?').length} to fill in, ${Object.keys(hashes).length} files hashed`);
   }
   process.exit(0);
 }
@@ -131,7 +156,7 @@ const tests = {
   'every use of the word slack in a production file is listed in slack-uses.json with its kind': () => {
     const methods = slackMethods();
     assert.ok(methods.includes('postMessage') && methods.includes('connect'), `Slack methods read: ${methods.join(', ')}`);
-    const { listed, problems } = compare('slack', occurrences(productionFiles(), 'slack'), 'kind');
+    const { listed, problems } = compare('slack', productionFiles(), 'kind');
     const { rows } = contract();
     const called = new Set();
     for (const entry of listed) {
@@ -162,7 +187,7 @@ const tests = {
     assert.ok(forms.includes('`block_actions`') && forms.includes('`view_submission`'), 'Buttons and forms covers block_actions and view_submission');
     const files = panelFiles();
     assert.ok(files.length > 0, 'the contract tags a panel call site');
-    const { listed, problems } = compare('payload', occurrences(files, 'payload'), 'reads');
+    const { listed, problems } = compare('payload', files, 'reads');
     const reads = new Set();
     for (const entry of listed) {
       for (const field of Array.isArray(entry.reads) ? entry.reads : []) {

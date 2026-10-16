@@ -1,403 +1,410 @@
-[
-  {
-    "file": "legend.js",
-    "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
-    "nth": 0,
-    "reads": []
+{
+  "files": {
+    "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
+    "payment-panel.js": "e46cf54d9d63189c690a5cf0c0da6126332b1a116bceb354410bc22aa314f4c4",
+    "payment-runner.js": "f05b7aa674582177277a3caf56d33abe4255c043803248c62ff6e3b73b729fc5"
   },
-  {
-    "file": "legend.js",
-    "line": "async function handle(type, payload = {}) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "legend.js",
-    "line": "if (type !== 'slash_commands' || payload?.command !== '/legend') return;",
-    "nth": 0,
-    "reads": [
-      "command"
-    ]
-  },
-  {
-    "file": "legend.js",
-    "line": "await slack().openView(payload.trigger_id, legendView(MEANING));",
-    "nth": 0,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
-    "nth": 1,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "// interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "//   time; null when the payload has neither.",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "function interactionKey(payload) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload?.type === 'view_submission') {",
-    "nth": 0,
-    "reads": [
-      "type"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const view = payload.view || {};",
-    "nth": 0,
-    "reads": [
-      "view.id",
-      "view.hash"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const act = payload?.actions?.[0];",
-    "nth": 0,
-    "reads": [
-      "actions[0].action_ts",
-      "actions[0].action_id",
-      "actions[0].value"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "return payload?.trigger_id ? `trigger:${payload.trigger_id}` : null;",
-    "nth": 0,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "return payload?.trigger_id ? `trigger:${payload.trigger_id}` : null;",
-    "nth": 1,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "function isOwner(payload) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const user = payload.user_id || payload.user?.id;",
-    "nth": 0,
-    "reads": [
-      "user_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const user = payload.user_id || payload.user?.id;",
-    "nth": 1,
-    "reads": [
-      "user.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
-    "nth": 0,
-    "reads": [
-      "team_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
-    "nth": 1,
-    "reads": [
-      "team.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
-    "nth": 2,
-    "reads": [
-      "user.team_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "function ack(type, payload = {}) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload.command !== '/payments') return null;",
-    "nth": 0,
-    "reads": [
-      "command"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (!isOwner(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type !== 'interactive' || payload.type !== 'view_submission') return null;",
-    "nth": 0,
-    "reads": [
-      "type"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const view = payload.view || {};",
-    "nth": 1,
-    "reads": [
-      "view.callback_id",
-      "view.state.values"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (!isOwner(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "async function slash(payload) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload.command !== '/payments') return;",
-    "nth": 0,
-    "reads": [
-      "command"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (!isOwner(payload)) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "note({ action: 'refused', who: payload.user_id || null, what: '/payments' });",
-    "nth": 0,
-    "reads": [
-      "user_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "await slack().openView(payload.trigger_id, g.pinSet() ? panelView(g) : setPinView({ next: 'panel' }));",
-    "nth": 0,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "async function action(payload) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const act = payload.actions?.[0];",
-    "nth": 0,
-    "reads": [
-      "actions[0].action_id",
-      "actions[0].value"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const inModal = Boolean(payload.view?.id);",
-    "nth": 0,
-    "reads": [
-      "view.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
-    "nth": 0,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
-    "nth": 1,
-    "reads": [
-      "trigger_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
-    "nth": 0,
-    "reads": [
-      "channel.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
-    "nth": 1,
-    "reads": [
-      "channel.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
-    "nth": 2,
-    "reads": [
-      "user.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (!isOwner(payload)) {",
-    "nth": 1,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "note({ action: 'refused', who: payload.user?.id || null, what: act.action_id, id: act.value || null });",
-    "nth": 0,
-    "reads": [
-      "user.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const result = g.refuse(row.id, { interaction: interactionKey(payload) });",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => panelView(g) });",
-    "nth": 0,
-    "reads": [
-      "view.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "async function submit(payload) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const view = payload.view || {};",
-    "nth": 2,
-    "reads": [
-      "view.callback_id",
-      "view.state.values",
-      "view.private_metadata",
-      "view.id",
-      "view.root_view_id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (!isOwner(payload)) {",
-    "nth": 2,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "note({ action: 'refused', who: payload.user?.id || null, what: view.callback_id });",
-    "nth": 0,
-    "reads": [
-      "user.id"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "const interaction = interactionKey(payload);",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "async function handle(type, payload = {}) {",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type === 'slash_commands') return slash(payload);",
-    "nth": 0,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type === 'interactive' && payload.type === 'block_actions') return action(payload);",
-    "nth": 0,
-    "reads": [
-      "type"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type === 'interactive' && payload.type === 'block_actions') return action(payload);",
-    "nth": 1,
-    "reads": []
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type === 'interactive' && payload.type === 'view_submission') return submit(payload);",
-    "nth": 0,
-    "reads": [
-      "type"
-    ]
-  },
-  {
-    "file": "payment-panel.js",
-    "line": "if (type === 'interactive' && payload.type === 'view_submission') return submit(payload);",
-    "nth": 1,
-    "reads": []
-  },
-  {
-    "file": "payment-runner.js",
-    "line": "payload: { text: `System message: ${text}`, audio: false, files: [] },",
-    "nth": 0,
-    "reads": []
-  }
-]
+  "uses": [
+    {
+      "file": "legend.js",
+      "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "legend.js",
+      "line": "async function handle(type, payload = {}) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "legend.js",
+      "line": "if (type !== 'slash_commands' || payload?.command !== '/legend') return;",
+      "nth": 0,
+      "reads": [
+        "command"
+      ]
+    },
+    {
+      "file": "legend.js",
+      "line": "await slack().openView(payload.trigger_id, legendView(MEANING));",
+      "nth": 0,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "//   time; null when the payload has neither.",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "function interactionKey(payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload?.type === 'view_submission') {",
+      "nth": 0,
+      "reads": [
+        "type"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const view = payload.view || {};",
+      "nth": 0,
+      "reads": [
+        "view.id",
+        "view.hash"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const act = payload?.actions?.[0];",
+      "nth": 0,
+      "reads": [
+        "actions[0].action_ts",
+        "actions[0].action_id",
+        "actions[0].value"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "return payload?.trigger_id ? `trigger:${payload.trigger_id}` : null;",
+      "nth": 0,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "return payload?.trigger_id ? `trigger:${payload.trigger_id}` : null;",
+      "nth": 1,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "function isOwner(payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const user = payload.user_id || payload.user?.id;",
+      "nth": 0,
+      "reads": [
+        "user_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const user = payload.user_id || payload.user?.id;",
+      "nth": 1,
+      "reads": [
+        "user.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
+      "nth": 0,
+      "reads": [
+        "team_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
+      "nth": 1,
+      "reads": [
+        "team.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const team = payload.team_id || payload.team?.id || payload.user?.team_id;",
+      "nth": 2,
+      "reads": [
+        "user.team_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "function ack(type, payload = {}) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload.command !== '/payments') return null;",
+      "nth": 0,
+      "reads": [
+        "command"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (!isOwner(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type !== 'interactive' || payload.type !== 'view_submission') return null;",
+      "nth": 0,
+      "reads": [
+        "type"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const view = payload.view || {};",
+      "nth": 1,
+      "reads": [
+        "view.callback_id",
+        "view.state.values"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (!isOwner(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "async function slash(payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload.command !== '/payments') return;",
+      "nth": 0,
+      "reads": [
+        "command"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (!isOwner(payload)) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "note({ action: 'refused', who: payload.user_id || null, what: '/payments' });",
+      "nth": 0,
+      "reads": [
+        "user_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "await slack().openView(payload.trigger_id, g.pinSet() ? panelView(g) : setPinView({ next: 'panel' }));",
+      "nth": 0,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "async function action(payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const act = payload.actions?.[0];",
+      "nth": 0,
+      "reads": [
+        "actions[0].action_id",
+        "actions[0].value"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const inModal = Boolean(payload.view?.id);",
+      "nth": 0,
+      "reads": [
+        "view.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
+      "nth": 0,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
+      "nth": 1,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
+      "nth": 0,
+      "reads": [
+        "channel.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
+      "nth": 1,
+      "reads": [
+        "channel.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
+      "nth": 2,
+      "reads": [
+        "user.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (!isOwner(payload)) {",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "note({ action: 'refused', who: payload.user?.id || null, what: act.action_id, id: act.value || null });",
+      "nth": 0,
+      "reads": [
+        "user.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const result = g.refuse(row.id, { interaction: interactionKey(payload) });",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => panelView(g) });",
+      "nth": 0,
+      "reads": [
+        "view.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "async function submit(payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const view = payload.view || {};",
+      "nth": 2,
+      "reads": [
+        "view.callback_id",
+        "view.state.values",
+        "view.private_metadata",
+        "view.id",
+        "view.root_view_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (!isOwner(payload)) {",
+      "nth": 2,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "note({ action: 'refused', who: payload.user?.id || null, what: view.callback_id });",
+      "nth": 0,
+      "reads": [
+        "user.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const interaction = interactionKey(payload);",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "async function handle(type, payload = {}) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type === 'slash_commands') return slash(payload);",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type === 'interactive' && payload.type === 'block_actions') return action(payload);",
+      "nth": 0,
+      "reads": [
+        "type"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type === 'interactive' && payload.type === 'block_actions') return action(payload);",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type === 'interactive' && payload.type === 'view_submission') return submit(payload);",
+      "nth": 0,
+      "reads": [
+        "type"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (type === 'interactive' && payload.type === 'view_submission') return submit(payload);",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-runner.js",
+      "line": "payload: { text: `System message: ${text}`, audio: false, files: [] },",
+      "nth": 0,
+      "reads": []
+    }
+  ]
+}
