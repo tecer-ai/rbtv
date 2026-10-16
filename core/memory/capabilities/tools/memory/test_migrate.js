@@ -384,4 +384,20 @@ test('a workspace document imports without a harness; an agent note still needs 
   assert.match(refused.stderr, /origin missing/);
 });
 
+test('a later job writes to a destination the consolidation edited since an earlier job', (w) => {
+  w.save();
+  ok(w.run('apply'));
+  fs.appendFileSync(path.join(w.inst, '.rbtv/memory/knowledge/preferences.md'), '- nightly consolidation added this (2026-10-14 · owner)\n');
+  const doc = path.join(w.dir, 'docs', 'later.md');
+  write(doc, '# Later\nOwner said he likes mate.\n');
+  const rows = [{
+    id: 'r-later', source: doc, origin: { workspace: 'vault' }, hash: sha(fs.readFileSync(doc)), mtime: 1, disposition: 'migrated', original: 'keep',
+    records: [{ span: [2, 2], kind: 'fact', scope: 'workspace', verdict: w.keep, destination: '.rbtv/memory/knowledge/preferences.md', text: '- mate (2026-10-15 · docs/later.md)' }],
+  }];
+  w.save(rows);  // cutover recomputed now: the current hash, not the one the ledger kept
+  const result = w.run('apply');
+  assert.equal(result.status, 0, result.toString());
+  assert.match(w.read('.rbtv/memory/knowledge/preferences.md'), /mate/);
+});
+
 if (failed.length) { process.stderr.write(`${failed.length} failed\n`); process.exit(1); }

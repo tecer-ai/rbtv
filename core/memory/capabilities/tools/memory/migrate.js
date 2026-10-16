@@ -109,7 +109,9 @@ function plan(installation, manifest, { resume = false } = {}) {
       if (record.kind === 'agent lesson' && route && !['learned', 'workspace'].includes(kind)) rbad('a lesson goes to learned rules or its workspace', 'learned.md of the source agent, or a workspace file');
       if (record.kind === 'fact' && kind === 'learned') rbad('a fact is not a learned rule', 'a knowledge, topic, entity or workspace file');
       const current = texts.has(dest) ? texts.get(dest) : readText(installation, dest);
-      const expected = dest in ledger.destinations ? ledger.destinations[dest] : manifest.cutover?.destinations?.[dest];
+      // The manifest's cutover hash is the reference: the job computed it when it read the destination.
+      // The ledger's hash is older (a previous job), and the consolidation edits destinations between jobs.
+      const expected = manifest.cutover?.destinations?.[dest];
       if (!texts.has(dest) && expected !== undefined && (current == null ? null : sha(current)) !== expected) {
         rbad('destination changed after cutover', `destination hash ${expected}; it now is ${current == null ? 'absent' : sha(current)}`);
         continue;
