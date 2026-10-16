@@ -144,11 +144,14 @@ def module_folders(root: Path) -> list[str]:
                   and (top / f"{top.name}.json").is_file())
 
 
-def scan_tree(root: Path, tree: str) -> dict[str, dict]:
+def scan_tree(root: Path, tree: str,
+              shipped: dict[str, dict] | None = None) -> dict[str, dict]:
     """Every component under one tree root, by id `<module>/<component>`:
     a folder holding its own `<component>.json`, inside a folder holding its own
     `<module>.json`. {} when the root is absent. A module or component folder
-    without its record is refused, never skipped."""
+    without its record is refused, never skipped. `shipped`, the repository's
+    catalog when the tree is the mirror, lets a refusal of a mirror record name
+    the shipped record it replaces and the field to copy from it."""
     found: dict[str, dict] = {}
     if not root.is_dir():
         return found
@@ -182,12 +185,17 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
                              f"component folder {sub} has no {record_path.name}",
                              str(record_path))
             data = _record(record_path, "component-json")
-            if top.name == CONNECTORS_MODULE and "type" not in data:
-                raise Refuse("type-missing",
-                             f"{record_path}: a component under {CONNECTORS_MODULE}/ "
-                             "names the port it is listed under in 'type' "
-                             "(for example messaging or payments)", str(record_path))
             cid = f"{top.name}/{sub.name}"
+            if top.name == CONNECTORS_MODULE and "type" not in data:
+                message = (f"{record_path}: a component under {CONNECTORS_MODULE}/ "
+                           "names the port it is listed under in 'type' "
+                           "(for example messaging or payments)")
+                replaced = (shipped or {}).get(cid)
+                if replaced and replaced.get("type"):
+                    message += (f"; this mirror record replaces {_record_file(replaced)}, "
+                                f"whose type is {replaced['type']!r}: copy 'type' into "
+                                "the mirror record before the refresh")
+                raise Refuse("type-missing", message, str(record_path))
             found[cid] = {
                 "id": cid, "tree": tree, "tree_root": str(root),
                 "module": top.name, "component": sub.name, "path": str(sub),
@@ -211,7 +219,7 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
     the mirror hid, so the precedence is reported rather than silent.
     """
     repo = scan_tree(repo_root, "repo")
-    mirror = scan_tree(mirror_root, "mirror")
+    mirror = scan_tree(mirror_root, "mirror", shipped=repo)
     shadowed = [
         {"id": cid, "shadowed_path": repo[cid]["path"],
          "winner_path": mirror[cid]["path"]}
@@ -230,24 +238,44 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
             raise Refuse("component-duplicate",
                          f"components {first} and {cid} share the name "
                          f"{comp['component']!r}; rename one", comp["path"])
-    unmet_needs(merged)
+    unmet_needs(merged, shipped=repo)
     pack_rows(merged)
     return merged, shadowed
 
 
-def unmet_needs(catalog: dict[str, dict]) -> None:
+def _record_file(comp: dict) -> Path:
+    """The record file of a catalog component: `<path>/<component>.json`."""
+    return Path(comp["path"]) / f"{comp['component']}.json"
+
+
+def unmet_needs(catalog: dict[str, dict],
+                shipped: dict[str, dict] | None = None) -> None:
     """Refuses the first component whose `needs` holds an operation no component
     of the catalog `provides`. A need is matched by operation name, never by the
     name of the component that provides it, so a mirror component can provide
-    what a repository component needs."""
+    what a repository component needs. When the operation is provided by a
+    shipped component that a mirror component replaced whole (`shipped` is the
+    repository's catalog), the refusal names that mirror record and the
+    `provides` to copy into it: the scan stays closed either way."""
     provided = {op for comp in catalog.values() for op in comp.get("provides") or []}
     for cid, comp in sorted(catalog.items()):
         missing = [op for op in comp.get("needs") or [] if op not in provided]
-        if missing:
-            raise Refuse("needs-unmet",
-                         f"{cid} needs {', '.join(missing)}, which no component "
-                         "provides; install or write a component whose record "
-                         "provides it", comp["path"])
+        if not missing:
+            continue
+        message = (f"{cid} needs {', '.join(missing)}, which no component "
+                   "provides; install or write a component whose record "
+                   "provides it")
+        for op in missing:
+            for scid, scomp in sorted((shipped or {}).items()):
+                winner = catalog.get(scid)
+                if op in (scomp.get("provides") or []) and winner \
+                        and winner.get("tree") == "mirror":
+                    message += (f"; the mirror record {_record_file(winner)} replaces "
+                                f"{_record_file(scomp)}, which provides {op}: copy "
+                                "'provides' from the shipped record into the mirror "
+                                "record before the refresh")
+                    break
+        raise Refuse("needs-unmet", message, comp["path"])
 
 
 def pack_rows(catalog: dict[str, dict]) -> list[dict]:
