@@ -1,6 +1,6 @@
 # Live status
 
-Live status is the state Ignite shows the owner on each owner message, so that the work of an agent the owner cannot watch stays visible while it runs. It has three layers, and at most two show at once: the system state, plus the agent state during the work or the task state after it. The agent and task states never show together.
+Live status is the state Ignite shows the owner on the latest message of each conversation's thread, so that the work of an agent the owner cannot watch stays visible while it runs. It has three layers, and at most two show at once: the system state, plus the agent state during the work or the task state after it. The agent and task states never show together.
 
 Ignite owns the states and names no emoji. A communication connector shows them in its own medium; Slack shows them as reactions, through the mapping and order rules in `connectors/slack/capabilities/tools/slack/lib/live-status.js`. Ignite's waking service is the only place that shows them, because it alone sees every agent and so shares Slack's rate budget across them.
 
@@ -19,7 +19,9 @@ Ignite owns the states and names no emoji. A communication connector shows them 
 | task | `question` | A `waiting_owner` result |
 | task | `stopped` | A `stopped` result |
 
-The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A continue or wake turn shows on the latest owner message of its work; a scheduled wake answers no owner message and shows nothing. A turn's start removes the agent state of the conversation's other messages; when a turn of the same work later ends with a task state, those messages show that task too. `ignite status --task <state> --message <ts>` sets the task state of an earlier owner message of the same conversation whose turn has finished.
+The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A scheduled wake answers no owner message and shows nothing.
+
+The status follows the thread's latest message among those Ignite knows about: each owner message it accepts and each reply or post it delivers into the thread. When a newer one arrives, the status moves there and the message it leaves keeps only its own task: the task of the turn whose final reply it is (or, for a turn with no reply, of the latest message that turn saw), so earlier messages keep their ✅, ⚠️, ❓ or ⏹️ and most messages end with no reaction. A new owner message shows `queued` and no task, unless a turn of the conversation is running, whose state it then shows. While a later turn's agent state shows on a message that keeps a task, the task is hidden; it shows again once the status moves on. When no turn of the conversation runs and one of its owner messages waits for a turn, `running` or `fallback` gives way to `queued`. A reply that cannot be delivered moves nothing: the latest message shows `failed`. `ignite status --task <state> --message <ts>` sets the task of an earlier owner message of the same conversation whose turn has finished, on the message that keeps it; the ts of that message works as well.
 
 In Slack, `/legend` shows any user what each reaction means, from the states and their meanings in Ignite and the emoji in the Slack connector.
 

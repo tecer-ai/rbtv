@@ -11,12 +11,12 @@
 //   request includes systemPromptFile <home>/prompt.md (absolute). This file does not read or
 //   require CLAUDE.md.
 //   failRun enqueues the one blocker — this file does not.
-//   The live status of the owner message a turn answers (live-status.js): running and working at
-//   launch, fallback once `ignite turn` starts a fallback (the file turn.js's fellBackFile names
-//   appears, checked every deps.fallbackCheckMs, else FALLBACK_CHECK_MS, and again at the end),
-//   retrying or failed on a failure, and at the end what the result's disposition gives, written in
-//   the transaction that ends the run. The replies carry the message and its task state in
-//   payload.mark, for outbox.js to show at delivery.
+//   The live status of the conversation of the owner message a turn answers (live-status.js): running
+//   and working at launch, fallback once `ignite turn` starts a fallback (the file turn.js's
+//   fellBackFile names appears, checked every deps.fallbackCheckMs, else FALLBACK_CHECK_MS, and again
+//   at the end), retrying or failed on a failure, and at the end what the result's disposition gives,
+//   written in the transaction that ends the run. The replies carry that message, the run and its task
+//   state in payload.mark { channel, ts, runId, task? }, for outbox.js to show at delivery.
 //   The result's caveats: absent, false or null mean none; true is valid only with completed; any
 //   other value fails the turn.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
@@ -408,10 +408,10 @@ async function execute(slug, claim, deps) {
     throw fail(error.message, 'work');
   }
   const output = fs.readFileSync(resultPath, 'utf8');
-  // The owner message the replies answer, and the task state outbox.js shows on it once every reply
-  // is delivered.
+  // The owner message the replies answer, their run, and the task state outbox.js shows once every
+  // reply is delivered.
   const task = live.taskOf(agent.disposition, agent.caveats === true);
-  const mark = message ? { channel: message.channel, ts: message.ts, ...(task && { task }) } : null;
+  const mark = message ? { channel: message.channel, ts: message.ts, runId: claim.runId, ...(task && { task }) } : null;
   const work = store.transaction(() => {
     const done = commit(store, claim, {
       output,

@@ -1,9 +1,10 @@
 'use strict';
 
-// Live status: what Ignite shows the owner on each owner message while its work runs, in three
-// layers. Ignite owns the states and names no emoji: a communication connector shows them in its
-// medium (Slack: connectors/slack/capabilities/tools/slack/lib/live-status.js). This file writes the
-// state into the agent's store; status-ticker.js, in the waking service, reads it and shows it.
+// Live status: what Ignite shows the owner on the latest message of each conversation's thread while
+// its work runs, in three layers. Ignite owns the states and names no emoji: a communication connector
+// shows them in its medium (Slack: connectors/slack/capabilities/tools/slack/lib/live-status.js). This
+// file writes the state into the agent's store; status-ticker.js, in the waking service, reads it and
+// shows it.
 //
 // API
 // SYSTEM   queued | running | fallback | retrying | failed — set by Ignite
@@ -15,34 +16,51 @@
 //          sentence of what it tells the owner; SYSTEM, AGENT and TASK are its keys. A connector's
 //          legend shows the sentence beside the state's sign in its medium.
 // At most two layers show: the system, plus the agent during the work or the task after it.
+// Where they show: the store keeps one row per message of a conversation Ignite knows about, each
+// owner message it accepts and each reply or post it delivers into the thread. The newest of them
+// (highest Slack ts) is the conversation's live row and shows its layers. Every write first makes the
+// newest row the live row: the layers move there, and the message that held them keeps only its own
+// task, the task a turn result or `ignite status --task` gave it (none for most messages). While a
+// later turn's agent state shows on a message that keeps a task, the task is hidden; it shows again
+// once the live status moves on.
 // taskOf(disposition, caveats) → the task state a turn result gives, or null for continue and
 //   waiting_workers.
-// messageOf(store, run, log?) → { conversationKey, channel, ts } of the owner message a turn shows
-//   on: an owner turn's own message; a continue or wake turn's latest owner message of its work.
-//   null for a scheduled wake.
+// messageOf(store, run, log?) → { conversationKey, channel, ts } of the owner message a turn answers:
+//   an owner turn's own message; a continue or wake turn's latest owner message of its work. null for
+//   a scheduled wake, which shows nothing.
 // The service-side writes below never throw: a failed write is logged as { event: 'status-failed' }.
-//   received(store, message, log)               system queued
-//   started(store, message, runId, log)         system running, agent working, no task; any other
-//                                               message of the conversation loses its agent state
+// message is the owner message a turn answers (messageOf); each write acts on its conversation.
+//   received(store, message, log)               the new owner message is known; system queued, and no
+//                                               task on it, unless a turn of the conversation runs
+//   started(store, message, runId, log)         system running, agent working, no task
 //   fellBack(store, message, log)               system fallback
 //   ended(store, message, disposition, task, replies, log)
 //                                               waiting_workers → agent waiting; continue → agent
-//                                               working; with no replies, the task at once
+//                                               working; with no replies, the task at once, kept by
+//                                               the newest message that is not an owner message
+//                                               still waiting for its turn
 //   failed(store, message, held, log)           system retrying, or failed once held; no agent
-//   delivered(store, mark, log)                 every reply carrying mark { channel, ts, task? } is
-//                                               delivered: the task replaces the agent
-//   deliveryFailed(store, mark, log)            system failed; no agent
+//   delivered(store, reply, answer, log)        reply { conversationKey, channel, ts }, delivered into
+//                                               a thread that shows a live status, is known. answer is
+//                                               the mark of the turn it belongs to, { ts, runId?,
+//                                               task? }, with task once every reply of that turn is
+//                                               delivered: the reply keeps that task, which replaces
+//                                               the turn's agent state; null for a post
+//   deliveryFailed(store, mark, log)            mark { conversationKey, runId? }: system failed; the
+//                                               agent of that turn goes. Nothing moves
 //   waitEnded(store, message, log)              a waiting message whose work no longer waits for
 //                                               workers (stopped, held, ended): no agent
-//   A task a turn ends with (ended, delivered) also shows on every message of the same work whose
-//   agent state a later turn cleared, which until then shows its system state alone.
+//   When no turn of the conversation runs and an owner message of it waits for a turn, a turn's
+//   running or fallback gives way to queued.
 //   Callers run ended and failed in the transaction that ends the run, and delivered and
 //   deliveryFailed in the one that records the delivery, so a stop never loses the state.
 // The two writes `ignite status` makes throw a refusal (exitCode 1) instead:
 //   declare(store, conversationKey, state) → the row, or null when the running turn answers no
 //     owner message.
-//   markTask(store, conversationKey, ts, task) → the row of an earlier owner message of the
-//     running turn's conversation whose last turn has finished.
+//   markTask(store, conversationKey, ts, task) → the row that now keeps the task of ts: ts is a
+//     message that keeps a task, or an owner message of the conversation whose turn has finished, in
+//     which case the newest message keeping its task takes it (the message itself when none does).
+//     The running turn's own owner message is refused.
 
 const MEANING = Object.freeze({
   system: Object.freeze({
@@ -102,67 +120,157 @@ function messageOf(store, run, log) {
   });
 }
 
-function write(store, message, fields, log) {
-  if (!message?.channel || !message?.ts) return null;
-  return guard(log, () => store.setLiveStatus({ ...message, ...fields }));
+// Slack ts order: whole seconds, then the fraction as six digits.
+function newer(a, b) {
+  const [as, af = ''] = String(a).split('.');
+  const [bs, bf = ''] = String(b).split('.');
+  if (Number(as) !== Number(bs)) return Number(as) > Number(bs);
+  return af.padEnd(6, '0') > bf.padEnd(6, '0');
+}
+
+const newest = (rows) => rows.reduce((one, row) => (newer(row.ts, one.ts) ? row : one));
+
+const COLUMN = { system: 'system', agent: 'agent', task: 'task', runId: 'run_id', kept: 'kept', keptFor: 'kept_for' };
+
+// Writes the fields that differ from the row; the row as it is when none does.
+function change(store, row, fields) {
+  const diff = Object.entries(fields).filter(([name, value]) => value !== undefined && (row[COLUMN[name]] ?? null) !== value);
+  if (!diff.length) return row;
+  return store.setLiveStatus({ channel: row.channel, ts: row.ts, ...Object.fromEntries(diff) });
+}
+
+// A message of the conversation Ignite knows about from now on, showing nothing yet.
+function know(store, message) {
+  if (store.getLiveStatus(message.channel, message.ts)) return;
+  store.setLiveStatus({ conversationKey: message.conversationKey, channel: message.channel, ts: message.ts });
+}
+
+// The conversation's live row, its newest message, or null when it has none. The layers and their run
+// move there from the row that held them; every other message is left with the task it keeps. Older
+// rows are written first, so the ticker clears the old message before it shows the new one.
+function follow(store, key) {
+  const rows = store.liveStatuses({ conversationKey: key });
+  if (!rows.length) return null;
+  const latest = newest(rows);
+  const from = latest.system || latest.agent ? latest : rows.filter((row) => row.system || row.agent).at(-1);
+  for (const row of rows) {
+    if (row !== latest) change(store, row, { system: null, agent: null, task: row.kept ?? null, runId: null });
+  }
+  if (!from || from === latest) return latest;
+  return change(store, latest, { system: from.system, agent: from.agent, task: from.task, runId: from.run_id });
+}
+
+// Writes fields, or fields(row), on the conversation's live row.
+function onLive(store, key, fields) {
+  const row = follow(store, key);
+  if (!row) return null;
+  return change(store, row, typeof fields === 'function' ? fields(row) : fields);
+}
+
+const runs = (store, key) => store.getActiveRun()?.conversation_key === key;
+
+// A turn's running or fallback, once no turn of the conversation runs and an owner message of it
+// waits for one: queued.
+function idle(store, key, system) {
+  if (system !== 'running' && system !== 'fallback') return system;
+  if (runs(store, key)) return system;
+  return store.pendingOwnerTs(key).length ? 'queued' : system;
 }
 
 function received(store, message, log) {
-  return write(store, message, { system: 'queued' }, log);
+  const key = message?.conversationKey;
+  if (!key || !message.channel || !message.ts) return null;
+  return guard(log, () => store.transaction(() => {
+    know(store, message);
+    return onLive(store, key, (row) => {
+      if (runs(store, key)) return {};
+      // A new request: its message shows no task of the work before it.
+      return { system: 'queued', task: row.ts === message.ts ? null : undefined };
+    });
+  }));
 }
 
 function started(store, message, runId, log) {
-  if (!message) return null;
+  const key = message?.conversationKey;
+  if (!key || !message.channel || !message.ts) return null;
   return guard(log, () => store.transaction(() => {
-    for (const row of store.liveStatuses({ conversationKey: message.conversationKey })) {
-      if (row.agent && !(row.channel === message.channel && row.ts === message.ts)) {
-        store.setLiveStatus({ channel: row.channel, ts: row.ts, agent: null });
-      }
-    }
-    return store.setLiveStatus({ ...message, system: 'running', agent: 'working', task: null, runId });
+    know(store, message);
+    return onLive(store, key, { system: 'running', agent: 'working', task: null, runId });
   }));
 }
 
 function fellBack(store, message, log) {
-  return write(store, message, { system: 'fallback' }, log);
+  const key = message?.conversationKey;
+  if (!key) return null;
+  return guard(log, () => store.transaction(() => onLive(store, key, { system: 'fallback' })));
 }
 
-// The task on the message, and on each message of the same work whose agent state a later turn
-// cleared: its turn ran (system running or fallback) and it shows neither an agent nor a task.
-function showTask(store, message, task) {
-  return store.transaction(() => {
-    const row = store.getLiveStatus(message.channel, message.ts);
-    const shown = store.setLiveStatus({ channel: message.channel, ts: message.ts, task, agent: null });
-    const workId = row?.run_id ? store.getRun(row.run_id)?.work_id : null;
-    for (const other of workId ? store.liveStatusesOfWork(workId) : []) {
-      const cleared = !other.agent && !other.task && (other.system === 'running' || other.system === 'fallback');
-      if (cleared && !(other.channel === message.channel && other.ts === message.ts)) {
-        store.setLiveStatus({ channel: other.channel, ts: other.ts, task });
-      }
-    }
-    return shown;
+// The task of a turn with no reply to carry it, kept by the newest message that is not an owner
+// message still waiting for its turn (a request the turn never saw). The live row ends the turn's agent.
+function showTask(store, key, task, answers) {
+  const live = follow(store, key);
+  if (!live) return null;
+  const waiting = new Set(store.pendingOwnerTs(key));
+  const seen = store.liveStatuses({ conversationKey: key }).filter((row) => !waiting.has(row.ts));
+  const carrier = seen.length ? newest(seen) : live;
+  const keeps = { task, kept: task, keptFor: answers };
+  if (carrier.ts !== live.ts) change(store, carrier, keeps);
+  return change(store, store.getLiveStatus(live.channel, live.ts), {
+    agent: null,
+    system: idle(store, key, live.system),
+    ...(carrier.ts === live.ts && keeps),
   });
 }
 
 function ended(store, message, disposition, task, replies, log) {
-  if (!message?.channel || !message?.ts) return null;
-  if (disposition === 'waiting_workers') return write(store, message, { agent: 'waiting' }, log);
-  if (disposition === 'continue') return write(store, message, { agent: 'working' }, log);
-  if (task && !replies) return guard(log, () => showTask(store, message, task));
+  const key = message?.conversationKey;
+  if (!key) return null;
+  if (disposition === 'waiting_workers' || disposition === 'continue') {
+    const agent = disposition === 'waiting_workers' ? 'waiting' : 'working';
+    return guard(log, () => store.transaction(() => onLive(store, key, (row) => ({ agent, system: idle(store, key, row.system) }))));
+  }
+  if (task && !replies) return guard(log, () => store.transaction(() => showTask(store, key, task, message.ts)));
   return null;
 }
 
 function failed(store, message, held, log) {
-  return write(store, message, { system: held ? 'failed' : 'retrying', agent: null }, log);
+  const key = message?.conversationKey;
+  if (!key || !message.channel || !message.ts) return null;
+  return guard(log, () => store.transaction(() => {
+    // A turn that fails before it starts (a voice note it cannot hear) still shows its failure.
+    know(store, message);
+    return onLive(store, key, { system: held ? 'failed' : 'retrying', agent: null });
+  }));
 }
 
-function delivered(store, mark, log) {
-  if (!mark?.task || !mark.channel || !mark.ts) return null;
-  return guard(log, () => showTask(store, { channel: mark.channel, ts: mark.ts }, mark.task));
+function delivered(store, reply, answer, log) {
+  const key = reply?.conversationKey;
+  if (!key || !reply.channel || !reply.ts) return null;
+  return guard(log, () => store.transaction(() => {
+    // A thread that shows no live status (a scheduled wake's, a proactive post's) gets none.
+    if (!store.liveStatuses({ conversationKey: key }).length) return null;
+    know(store, reply);
+    const live = follow(store, key);
+    const task = answer?.task || null;
+    // The live layers belong to the reply's turn: its task replaces its agent state.
+    const ours = !answer?.runId || live.run_id === answer.runId;
+    const keeps = task ? { kept: task, keptFor: answer.ts } : {};
+    if (task && reply.ts !== live.ts) change(store, store.getLiveStatus(reply.channel, reply.ts), { task, ...keeps });
+    return change(store, live, {
+      system: idle(store, key, live.system),
+      ...(task && ours && { agent: null }),
+      ...(task && reply.ts === live.ts && { ...keeps, ...(ours && { task }) }),
+    });
+  }));
 }
 
 function deliveryFailed(store, mark, log) {
-  return write(store, { channel: mark?.channel, ts: mark?.ts }, { system: 'failed', agent: null }, log);
+  const key = mark?.conversationKey;
+  if (!key) return null;
+  return guard(log, () => store.transaction(() => onLive(store, key, (row) => ({
+    system: 'failed',
+    ...((!mark.runId || row.run_id === mark.runId) && { agent: null }),
+  }))));
 }
 
 function waitEnded(store, message, log) {
@@ -188,37 +296,47 @@ function refuse(message) {
   return error;
 }
 
+// The running turn of this agent, which must belong to the conversation.
+function activeRun(store, conversationKey) {
+  const run = store.getActiveRun();
+  if (!run) throw refuse('no turn of this agent is running; ignite status runs inside a turn');
+  if (run.conversation_key !== conversationKey) {
+    throw refuse(`the running turn belongs to ${run.conversation_key}, not ${conversationKey}`);
+  }
+  return run;
+}
+
 function declare(store, conversationKey, state) {
   if (!DECLARED.includes(state)) throw refuse(`unknown state: ${state}\nchoose from ${DECLARED.join(', ')}`);
   return store.transaction(() => {
-    const run = store.getActiveRun();
-    if (!run) throw refuse('no turn of this agent is running; ignite status runs inside a turn');
-    if (run.conversation_key !== conversationKey) {
-      throw refuse(`the running turn belongs to ${run.conversation_key}, not ${conversationKey}`);
-    }
-    const row = store.liveStatusOfRun(run.id);
-    if (!row) return null;
-    return store.setLiveStatus({ channel: row.channel, ts: row.ts, agent: state });
+    const run = activeRun(store, conversationKey);
+    const row = follow(store, conversationKey);
+    if (!row || row.run_id !== run.id) return null;
+    return change(store, row, { agent: state });
   });
 }
 
 function markTask(store, conversationKey, ts, task) {
   if (!TASK.includes(task)) throw refuse(`unknown task state: ${task}\nchoose from ${TASK.join(', ')}`);
   return store.transaction(() => {
-    const run = store.getActiveRun();
-    if (!run) throw refuse('no turn of this agent is running; ignite status runs inside a turn');
-    if (run.conversation_key !== conversationKey) {
-      throw refuse(`the running turn belongs to ${run.conversation_key}, not ${conversationKey}`);
-    }
-    const row = store.liveStatuses({ conversationKey }).find((one) => one.ts === ts);
-    if (!row) throw refuse(`no owner message ${ts} in conversation ${conversationKey}`);
-    if (row.run_id === run.id) {
+    const run = activeRun(store, conversationKey);
+    const live = follow(store, conversationKey);
+    const rows = store.liveStatuses({ conversationKey });
+    const own = rows.find((one) => one.ts === ts);
+    const keepers = rows.filter((one) => one.kept && one.kept_for === ts);
+    const keeper = own?.kept ? own : (keepers.length ? newest(keepers) : null);
+    if (!own && !keeper) throw refuse(`no message ${ts} in conversation ${conversationKey}`);
+    const answering = messageOf(store, run)?.ts;
+    if (answering && (ts === answering || keeper?.kept_for === answering)) {
       throw refuse('this turn\'s own message takes its task state from RESULT_FILE: disposition and caveats');
     }
-    if (!row.run_id || store.getRun(row.run_id)?.state !== 'finished') {
-      throw refuse(`owner message ${ts} has no finished turn yet; only an earlier message whose turn has finished takes a task state`);
+    if (!keeper && !store.ownerTurnFinished(conversationKey, ts)) {
+      throw refuse(`message ${ts} has no finished turn yet; only an earlier message whose turn has finished takes a task state`);
     }
-    return store.setLiveStatus({ channel: row.channel, ts: row.ts, task, agent: null });
+    const row = keeper || own;
+    // On the live row while an agent state shows, the task waits for the live status to move on.
+    const hidden = row.ts === live?.ts && live.agent;
+    return change(store, row, { kept: task, keptFor: row.kept_for || ts, ...(!hidden && { task }) });
   });
 }
 

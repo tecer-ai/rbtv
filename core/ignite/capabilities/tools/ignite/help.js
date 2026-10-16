@@ -294,21 +294,22 @@ Example: ignite post --thread T1:C1:123.456 --text "Check complete"
 usage: ignite status <state> [--json]
        ignite status --task (done | caveats | question | stopped) --message <ts> [--json]
 
-Run inside a turn. The owner cannot see your terminal; the waking service shows each owner
-message's state in Slack. Ignite shows working when every turn starts. When you move to a
-different kind of work, declare it as <state>:
+Run inside a turn. The owner cannot see your terminal; the waking service shows the state on
+the latest message of the conversation's thread in Slack, your replies included. Ignite shows
+working when every turn starts. When you move to a different kind of work, declare it as <state>:
   gathering      reading, searching, collecting what the work needs
   thinking       analysing, comparing, deciding, planning
   making         writing, building, editing files
   orchestrating  launching and coordinating workers
-The state shows on the owner message this turn answers until you declare another or the turn ends.
+The state shows on the thread's latest message until you declare another or the turn ends.
 A turn that answers no owner message (a scheduled wake) has nowhere to show it: exit 0 and
 "nothing shown: this turn answers no owner message".
 
 The task state of this turn's own message comes from RESULT_FILE: disposition completed, waiting_owner
 or stopped, and "caveats": true with completed. --task with --message sets the task state of an
 earlier owner message of this conversation, by its Slack timestamp (the history gives it on each
-owner message), when its state changed since its turn finished:
+owner message), when its state changed since its turn finished. It lands on the message that shows
+that task, usually the turn's final reply, whose own timestamp works as well:
   done      the work is done
   caveats   done, with problems worth a follow-up
   question  waits for the owner's answer

@@ -956,7 +956,19 @@ function reactionSlack(calls, answered = null) {
   };
 }
 
-test('live status runs from the start: a turn the first scheduling pass runs shows while it runs', async () => {
+// What each message shows once the calls are made, by its ts.
+function netReactions(calls) {
+  const on = {};
+  for (const call of calls) {
+    const [op, ts, name] = call.split(' ');
+    on[ts] = on[ts] || [];
+    if (op === 'add') on[ts].push(name);
+    else on[ts] = on[ts].filter((one) => one !== name);
+  }
+  return on;
+}
+
+test('live status runs from the start: a turn the first scheduling pass runs shows while it runs, then moves to its reply', async () => {
   const { dir, home } = workspace();
   queueOwner(home, '1.000001');
   const cast = fakeCast(dir);
@@ -977,7 +989,9 @@ test('live status runs from the start: a turn the first scheduling pass runs sho
     assert.deepEqual(calls.filter((call) => !call.includes('hourglass')), ['add 1.000001 large_green_circle', 'add 1.000001 clock12']);
     fs.writeFileSync(release, '');
     runtime = await starting;
-    await waitFor(() => calls.includes('add 1.000001 white_check_mark'), 8000);
+    // The reply is the thread's latest message: the status moves there and the owner message ends clean.
+    await waitFor(() => calls.includes('add 9.1 white_check_mark'), 8000);
+    assert.deepEqual(netReactions(calls), { '1.000001': [], 9.1: ['large_green_circle', 'white_check_mark'] });
   } finally {
     fs.writeFileSync(release, '');
     runtime = runtime || await starting.catch(() => null);

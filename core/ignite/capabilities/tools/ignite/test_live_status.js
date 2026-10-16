@@ -35,11 +35,13 @@ const SYSTEMS = new Set(['hourglass_flowing_sand', 'large_green_circle', 'repeat
 // the right end. After every call it checks that a message never holds two system emoji, two agent
 // frames, an agent frame together with a task emoji, or a system emoji right of another, and keeps
 // the names the message then holds (seen). hang(op, name, key) makes Slack apply a call and never answer,
-// as when the service stops mid-call; wait holds every add until it settles.
+// as when the service stops mid-call; wait holds every add until it settles. trail keeps each call with
+// the message it touches, as channel:ts.
 function fakeSlack(t, carried = null) {
   const slack = {
     on: carried ? carried.on : new Map(),
     calls: [],
+    trail: [],
     adds: [],
     seen: [],
     violations: [],
@@ -62,6 +64,7 @@ function fakeSlack(t, carried = null) {
     async addReaction(channel, ts, name) {
       const key = `${channel}:${ts}`;
       slack.calls.push(`add ${name}`);
+      slack.trail.push(`add ${key} ${name}`);
       if (slack.wait) await slack.wait;
       if (slack.fail) { const error = slack.fail('add', name); if (error) throw error; }
       const names = slack.on.get(key) || [];
@@ -75,6 +78,7 @@ function fakeSlack(t, carried = null) {
     async removeReaction(channel, ts, name) {
       const key = `${channel}:${ts}`;
       slack.calls.push(`remove ${name}`);
+      slack.trail.push(`remove ${key} ${name}`);
       if (slack.fail) { const error = slack.fail('remove', name); if (error) throw error; }
       const names = slack.on.get(key) || [];
       if (!names.includes(name)) throw new Error('Slack reactions.remove: no_reaction');
@@ -133,8 +137,31 @@ function endTurn(box, claim, disposition, { replies = 0 } = {}) {
     invocationNonce: claim.nonce, output: '{}', disposition, summary: 's',
     nextStep: disposition === 'continue' ? 'next' : null,
   });
-  live.ended(box.store, box.message, disposition, live.taskOf(disposition, false), replies);
+  live.ended(box.store, live.messageOf(box.store, claim), disposition, live.taskOf(disposition, false), replies);
   return work;
+}
+
+// The owner writes ts in box's thread, accepted as ingress accepts it.
+function ownerWrites(box, ts) {
+  const { channel } = box.message;
+  box.store.acceptOwnerInput({
+    key: box.key, agent: 'a', workspace: 'T1', channel, rootTs: box.message.ts, activated: true,
+    message: { id: ts, role: 'owner', text: 'more', team: 'T1', channel, ts },
+    payload: { text: 'more', ts, threadTs: box.message.ts },
+  });
+  live.received(box.store, { conversationKey: box.key, channel, ts });
+}
+
+// A reply of claim's turn delivered at ts into box's thread, as outbox.js reports it: task when it is
+// the turn's last reply. With no claim, a post.
+function replyDelivered(box, claim, ts, task = null) {
+  const answer = claim ? { ts: live.messageOf(box.store, claim).ts, runId: claim.runId, ...(task && { task }) } : null;
+  return live.delivered(box.store, { conversationKey: box.key, channel: box.message.channel, ts }, answer);
+}
+
+// What each message shows, by its ts.
+function shows(slack, tss, channel = 'C1') {
+  return Object.fromEntries(tss.map((ts) => [ts, slack.of(channel, ts)]));
 }
 
 async function run(ticker, t, ms, every = 100) {
@@ -598,10 +625,10 @@ test('ticker: ticking stops when the turn ends and when it fails', async () => {
   await run(ticker, t, 10_000);
   assert.equal(slack.calls.length, frozen);
   assert.deepEqual(slack.of('C1', '1.1'), shown);
-  // Delivery: the frame gives way to the task.
-  live.delivered(box.store, { channel: 'C1', ts: '1.1', task: 'done' });
+  // Delivery: the reply takes the live status, its task in place of the frame.
+  replyDelivered(box, claim, '9.1', 'done');
   await run(ticker, t, 1500);
-  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'white_check_mark']);
+  assert.deepEqual(shows(slack, ['1.1', '9.1']), { 1.1: [], 9.1: ['large_green_circle', 'white_check_mark'] });
 
   // A second message whose turn fails: the frame goes and nothing ticks.
   const other = agentStore('C2');
@@ -625,8 +652,7 @@ test('ticker: waiting_workers shows waiting, no task, ticking slowly until the w
   const ticker = tickerFor([box], t, slack);
   const claim = startTurn(box);
   await run(ticker, t, 3000);
-  endTurn(box, claim, 'waiting_workers', { replies: 1 });
-  live.delivered(box.store, { channel: 'C1', ts: '1.1' });
+  endTurn(box, claim, 'waiting_workers');
   await run(ticker, t, 1500);
   assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'zzz']);
   slack.adds.length = 0;
@@ -675,24 +701,29 @@ test('ticker: a restart finishes what the stopped service left: a recorded state
     ['large_green_circle', 'clock2'],
   ]);
   assert.deepEqual(recorded(boxes[2]).unsure, ['clock2']);
-  // The service is gone. Meanwhile C1's reply is delivered (done) and C2's turn ends waiting.
+  // The service is gone. Meanwhile C1's reply is delivered (done), so the live status moves from its
+  // owner message to the reply, and C2's turn ends waiting.
   endTurn(boxes[0], claims[0], 'completed', { replies: 1 });
-  live.delivered(boxes[0].store, { channel: 'C1', ts: '1.1', task: 'done' });
+  replyDelivered(boxes[0], claims[0], '9.1', 'done');
   endTurn(boxes[1], claims[1], 'waiting_workers', { replies: 0 });
   const restarted = fakeSlack(t, slack);
   const again = tickerFor(boxes, t, restarted);
   await run(again, t, 1200);
-  // C1 and C3 added a frame less than a second before the stop: the gap they record holds them back.
-  assert.deepEqual(restarted.calls, [
-    'remove mag', 'add zzz',
-    'remove clock2', 'add white_check_mark',
-    'remove clock2', 'add clock12',
+  // C3 added a frame less than a second before the stop: the gap it records holds it back. C1's owner
+  // message only loses reactions; its reply is a new message with no gap to wait for.
+  assert.deepEqual(restarted.trail, [
+    'remove C1:1.1 clock2', 'remove C1:1.1 large_green_circle',
+    'add C1:9.1 large_green_circle',
+    'remove C2:1.1 mag', 'add C2:1.1 zzz',
+    'remove C3:1.1 clock2', 'add C3:1.1 clock12',
+    'add C1:9.1 white_check_mark',
   ]);
   assert.deepEqual(['C1', 'C2', 'C3'].map((channel) => restarted.of(channel, '1.1')), [
-    ['large_green_circle', 'white_check_mark'],
+    [],
     ['large_green_circle', 'zzz'],
     ['large_green_circle', 'clock12'],
   ]);
+  assert.deepEqual(restarted.of('C1', '9.1'), ['large_green_circle', 'white_check_mark']);
   assert.deepEqual(restarted.violations, []);
 });
 
@@ -768,6 +799,8 @@ test('ticker: a row made before the shown column is an unknown display: every li
     const store = new Store(file);
     try {
       assert.equal(store.getLiveStatus('C1', '1.1').shown, null);
+      // Every row then was an owner message: the task it shows is the one it keeps.
+      assert.deepEqual([store.getLiveStatus('C1', '1.1').kept, store.getLiveStatus('C1', '1.1').kept_for], ['done', '1.1']);
       // The service that made the row showed the green circle and a working frame.
       const slack = fakeSlack(t);
       slack.on.set('C1:1.1', ['large_green_circle', 'clock2']);
@@ -942,28 +975,185 @@ test('ticker: reaction errors are logged and never throw', async () => {
 
 // ---- Ignite's states ----
 
-test('a turn\'s task also shows on the earlier messages of its work whose agent state its start cleared', () => {
+// ---- The live status follows the thread's latest message ----
+
+// Runs the ticker for ms and returns the calls it made, each with its message.
+async function step(ticker, t, slack, ms) {
+  slack.trail.length = 0;
+  await run(ticker, t, ms);
+  return [...slack.trail];
+}
+
+test('the live status follows the thread\'s latest message: each move\'s calls in order, the old message keeps only its task', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const box = agentStore();
+  const ticker = tickerFor([box], t, slack);
+  // The owner writes: the hourglass on the message.
+  assert.deepEqual(await step(ticker, t, slack, 500), ['add C1:1.1 hourglass_flowing_sand']);
+  // The turn runs there: the green circle replaces the hourglass, the clock follows 1 s later.
+  const first = startTurn(box);
+  assert.deepEqual(await step(ticker, t, slack, 1900), [
+    'remove C1:1.1 hourglass_flowing_sand', 'add C1:1.1 large_green_circle', 'add C1:1.1 clock12',
+  ]);
+  // It replies and ends waiting for a worker: the green circle and the waiting move to the reply, and
+  // the owner message ends with no reaction.
+  endTurn(box, first, 'waiting_workers', { replies: 1 });
+  replyDelivered(box, first, '1.5');
+  assert.deepEqual(await step(ticker, t, slack, 2500), [
+    'remove C1:1.1 clock12', 'remove C1:1.1 large_green_circle',
+    'add C1:1.5 large_green_circle', 'add C1:1.5 zzz',
+  ]);
+  // The worker's wake starts the next turn: the clock on that reply.
+  assert.equal(box.store.wake({ conversationKey: box.key, note: 'worker done' }).inserted, true);
+  const wake = box.store.claimNext(Date.now() + 1000);
+  live.started(box.store, live.messageOf(box.store, wake), wake.runId);
+  assert.deepEqual(await step(ticker, t, slack, 1000), ['remove C1:1.5 zzz', 'add C1:1.5 clock12']);
+  // The final reply, completed: the green circle and done on it; the earlier reply ends with none.
+  endTurn(box, wake, 'completed', { replies: 1 });
+  replyDelivered(box, wake, '1.7', 'done');
+  assert.deepEqual(await step(ticker, t, slack, 2000), [
+    'remove C1:1.5 clock12', 'remove C1:1.5 large_green_circle',
+    'add C1:1.7 large_green_circle', 'add C1:1.7 white_check_mark',
+  ]);
+  // The owner writes again: the hourglass on the new message; the final reply keeps only its done.
+  ownerWrites(box, '2.2');
+  assert.deepEqual(await step(ticker, t, slack, 1500), ['remove C1:1.7 large_green_circle', 'add C1:2.2 hourglass_flowing_sand']);
+  assert.deepEqual(shows(slack, ['1.1', '1.5', '1.7', '2.2']),
+    { 1.1: [], 1.5: [], 1.7: ['white_check_mark'], 2.2: ['hourglass_flowing_sand'] });
+  assert.deepEqual(slack.violations, []);
+});
+
+test('a reply that keeps a task and is the latest when the next turn starts: the clock hides the task, which shows again once the status moves on', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
   const box = agentStore();
   const first = startTurn(box);
-  endTurn(box, first, 'waiting_workers', { replies: 1 });
-  live.delivered(box.store, { channel: 'C1', ts: '1.1' });
-  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: 'waiting', task: null });
-  // The owner writes again in the thread: the same work, a new turn, which clears the waiting.
-  box.store.acceptOwnerInput({
-    key: box.key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
-    message: { id: '2.2', role: 'owner', text: 'and?', team: 'T1', channel: 'C1', ts: '2.2' },
-    payload: { text: 'and?', ts: '2.2', threadTs: '1.1' },
-  });
-  const second = { conversationKey: box.key, channel: 'C1', ts: '2.2' };
-  live.received(box.store, second);
+  const ticker = tickerFor([box], t, slack);
+  assert.deepEqual(await step(ticker, t, slack, 1500), ['add C1:1.1 large_green_circle', 'add C1:1.1 clock12']);
+  // The owner writes while the turn runs: the running turn's status moves to the new message.
+  ownerWrites(box, '2.2');
+  assert.deepEqual(await step(ticker, t, slack, 1500), [
+    'remove C1:1.1 clock12', 'remove C1:1.1 large_green_circle',
+    'add C1:2.2 large_green_circle', 'add C1:2.2 clock12',
+  ]);
+  // The turn's reply lands after it, done. 2.2 still waits for its turn: the system is queued.
+  endTurn(box, first, 'completed', { replies: 1 });
+  replyDelivered(box, first, '2.5', 'done');
+  assert.deepEqual(await step(ticker, t, slack, 2000), [
+    'remove C1:2.2 clock12', 'remove C1:2.2 large_green_circle',
+    'add C1:2.5 hourglass_flowing_sand', 'add C1:2.5 white_check_mark',
+  ]);
+  // 2.2's turn starts on the latest message, the reply: agent and task never show together, so the
+  // clock takes the done's place; the reply keeps its task.
+  const second = box.store.claimNext(Date.now() + 1000);
+  assert.equal(second.payload.ts, '2.2');
+  live.started(box.store, live.messageOf(box.store, second), second.runId);
+  assert.deepEqual(await step(ticker, t, slack, 1900), [
+    'remove C1:2.5 white_check_mark', 'remove C1:2.5 hourglass_flowing_sand',
+    'add C1:2.5 large_green_circle', 'add C1:2.5 clock12',
+  ]);
+  // Marking the first owner message lands on the reply that keeps its task, unseen until the status moves.
+  assert.equal(live.markTask(box.store, box.key, '1.1', 'caveats').ts, '2.5');
+  assert.deepEqual(layers(box.store, '2.5'), { system: 'running', agent: 'working', task: null });
+  // 2.2's reply: the status moves on, and the earlier reply shows its task again.
+  endTurn(box, second, 'completed', { replies: 1 });
+  replyDelivered(box, second, '3.5', 'done');
+  assert.deepEqual(await step(ticker, t, slack, 2000), [
+    'remove C1:2.5 clock12', 'remove C1:2.5 large_green_circle',
+    'add C1:3.5 large_green_circle', 'add C1:2.5 warning', 'add C1:3.5 white_check_mark',
+  ]);
+  assert.deepEqual(shows(slack, ['1.1', '2.2', '2.5', '3.5']),
+    { 1.1: [], 2.2: [], 2.5: ['warning'], 3.5: ['large_green_circle', 'white_check_mark'] });
+  assert.deepEqual(slack.violations, []);
+});
+
+test('a restart after a move made while the service was stopped clears the old message and resumes on the new one', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const box = agentStore();
   const claim = startTurn(box);
-  assert.equal(claim.work_id, first.work_id);
-  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: null, task: null });
-  box.store.finishRun(claim.runId, claim.nonce, { invocationNonce: claim.nonce, output: '{}', disposition: 'completed', summary: 's' });
-  live.ended(box.store, second, 'completed', 'done', 1);
-  live.delivered(box.store, { channel: 'C1', ts: '2.2', task: 'done' });
+  endTurn(box, claim, 'waiting_workers', { replies: 1 });
+  const first = tickerFor([box], t, slack);
+  await run(first, t, 1500);
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'zzz']);
+  await first.stop();
+  // Stopped: the reply is delivered and takes the live status in the store only.
+  replyDelivered(box, claim, '1.5');
+  const restarted = fakeSlack(t, slack);
+  const again = tickerFor([box], t, restarted);
+  assert.deepEqual(await step(again, t, restarted, 1500), [
+    'remove C1:1.1 zzz', 'remove C1:1.1 large_green_circle',
+    'add C1:1.5 large_green_circle', 'add C1:1.5 zzz',
+  ]);
+  assert.deepEqual(recorded(box, '1.1').order, []);
+  assert.deepEqual(recorded(box, '1.5').order, ['large_green_circle', 'zzz']);
+  // The waiting keeps ticking there, slowly, and the wake turn works there.
+  assert.deepEqual(await step(again, t, restarted, 10_000), ['remove C1:1.5 zzz', 'add C1:1.5 sleeping']);
+  box.store.wake({ conversationKey: box.key, note: 'worker done' });
+  const wake = box.store.claimNext(Date.now() + 1000);
+  live.started(box.store, live.messageOf(box.store, wake), wake.runId);
+  assert.deepEqual(await step(again, t, restarted, 1000), ['remove C1:1.5 sleeping', 'add C1:1.5 clock12']);
+  assert.deepEqual(restarted.violations, []);
+});
+
+test('a post into the thread takes the live status, the conversation\'s task included; the reply before it keeps its own', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const box = agentStore();
+  const claim = startTurn(box);
+  endTurn(box, claim, 'completed', { replies: 1 });
+  replyDelivered(box, claim, '1.5', 'done');
+  const ticker = tickerFor([box], t, slack);
+  assert.deepEqual(await step(ticker, t, slack, 1500), ['add C1:1.5 large_green_circle', 'add C1:1.5 white_check_mark']);
+  replyDelivered(box, null, '1.8');
+  assert.deepEqual(await step(ticker, t, slack, 1500), [
+    'remove C1:1.5 large_green_circle', 'add C1:1.8 large_green_circle', 'add C1:1.8 white_check_mark',
+  ]);
+  // The post keeps no task of its own: the owner's next message leaves it with none.
+  ownerWrites(box, '2.2');
+  assert.deepEqual(await step(ticker, t, slack, 1500), [
+    'remove C1:1.8 white_check_mark', 'remove C1:1.8 large_green_circle', 'add C1:2.2 hourglass_flowing_sand',
+  ]);
+  assert.deepEqual(shows(slack, ['1.1', '1.5', '1.8', '2.2']),
+    { 1.1: [], 1.5: ['white_check_mark'], 1.8: [], 2.2: ['hourglass_flowing_sand'] });
+});
+
+test('a turn that ends with no reply while a newer owner message waits: its task goes to the message it saw, and the waiting one shows queued', () => {
+  const box = agentStore();
+  const first = startTurn(box);
+  ownerWrites(box, '2.2');
+  assert.deepEqual(layers(box.store, '2.2'), { system: 'running', agent: 'working', task: null });
+  endTurn(box, first, 'completed');
+  assert.deepEqual(layers(box.store, '1.1'), { system: null, agent: null, task: 'done' });
+  assert.deepEqual(layers(box.store, '2.2'), { system: 'queued', agent: null, task: null });
+  // 2.2's own turn ends with no reply: the task on 2.2, the latest message.
+  const second = startTurn(box);
+  endTurn(box, second, 'completed');
   assert.deepEqual(layers(box.store, '2.2'), { system: 'running', agent: null, task: 'done' });
-  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: null, task: 'done' });
+  const kept = (ts) => { const row = box.store.getLiveStatus('C1', ts); return [row.kept, row.kept_for]; };
+  assert.deepEqual([kept('1.1'), kept('2.2')], [['done', '1.1'], ['done', '2.2']]);
+});
+
+test('a system emoji that goes with nothing in its place is removed alone: a task beside it stays where it is', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const show = display(t, slack);
+  const cases = [
+    [['large_green_circle', 'white_check_mark'], { task: 'done' }, ['remove large_green_circle'], ['white_check_mark']],
+    [['large_green_circle', 'clock4'], {}, ['remove clock4', 'remove large_green_circle'], []],
+    [['large_green_circle', 'clock4'], { task: 'done' }, ['remove clock4', 'remove large_green_circle', 'add white_check_mark'], ['white_check_mark']],
+  ];
+  for (const [i, [before, state, calls, after]] of cases.entries()) {
+    const m = { channel: 'C1', ts: `${i}.1` };
+    slack.on.set(`C1:${i}.1`, [...before]);
+    show.restore(m, state, { order: before, unsure: [], lastAddAt: null });
+    slack.calls.length = 0;
+    assert.deepEqual(await show.apply(m), { settled: true });
+    assert.deepEqual(slack.calls, calls);
+    assert.deepEqual(slack.of('C1', `${i}.1`), after);
+  }
+  assert.deepEqual(slack.violations, []);
 });
 
 // ---- ignite status ----
@@ -971,28 +1161,25 @@ test('a turn\'s task also shows on the earlier messages of its work whose agent 
 function turnHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-status-'));
   const store = new Store(ignitePaths(home).database);
-  const box = { store, key: 'T1:C1:1.1' };
-  for (const ts of ['1.1', '2.2']) {
-    store.acceptOwnerInput({
-      key: box.key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
-      message: { id: ts, role: 'owner', text: 'hi', team: 'T1', channel: 'C1', ts },
-      payload: { text: 'hi', ts, threadTs: '1.1' },
-    });
-  }
-  const first = store.claimNext(Date.now());
-  live.started(store, live.messageOf(store, first), first.runId);
-  endTurn({ store, message: { conversationKey: box.key, channel: 'C1', ts: '1.1' } }, first, 'waiting_owner', { replies: 1 });
-  live.delivered(store, { channel: 'C1', ts: '1.1', task: 'question' });
-  const second = store.claimNext(Date.now() + 1000);
-  live.started(store, live.messageOf(store, second), second.runId);
-  // A third message, queued while the second's turn runs.
+  const message = { conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '1.1' };
+  const box = { store, key: message.conversationKey, message };
+  // The first owner message's turn asks a question in its reply 1.5.
   store.acceptOwnerInput({
     key: box.key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
-    message: { id: '3.3', role: 'owner', text: 'also', team: 'T1', channel: 'C1', ts: '3.3' },
-    payload: { text: 'also', ts: '3.3', threadTs: '1.1' },
+    message: { id: '1.1', role: 'owner', text: 'hi', team: 'T1', channel: 'C1', ts: '1.1' },
+    payload: { text: 'hi', ts: '1.1', threadTs: '1.1' },
   });
-  live.received(store, { conversationKey: box.key, channel: 'C1', ts: '3.3' });
-  return { home, store, ...box };
+  live.received(store, message);
+  const first = store.claimNext(Date.now());
+  live.started(store, live.messageOf(store, first), first.runId);
+  endTurn(box, first, 'waiting_owner', { replies: 1 });
+  replyDelivered(box, first, '1.5', 'question');
+  // The owner answers in 2.2, whose turn runs; 3.3 arrives while it runs and is the latest message.
+  ownerWrites(box, '2.2');
+  const second = store.claimNext(Date.now() + 1000);
+  live.started(store, live.messageOf(store, second), second.runId);
+  ownerWrites(box, '3.3');
+  return { home, ...box };
 }
 
 function status(argv, env) {
@@ -1022,9 +1209,9 @@ test('ignite status: refuses an unknown state, outside a turn and a missing --me
     assert.match(status(['thinking'], { RBTV_AGENT_HOME: box.home }).err, /runs inside a turn: IGNITE_CONVERSATION is not set/);
     assert.match(status(['thinking'], { ...env, IGNITE_CONVERSATION: 'T1:C9:9.9' }).err, /the running turn belongs to T1:C1:1.1/);
     assert.match(status(['--task', 'done', '--message', '2.2'], env).err, /this turn's own message takes its task state from RESULT_FILE/);
-    assert.match(status(['--task', 'done', '--message', '7.7'], env).err, /no owner message 7.7 in conversation T1:C1:1.1/);
+    assert.match(status(['--task', 'done', '--message', '7.7'], env).err, /^no message 7.7 in conversation T1:C1:1.1\n/);
     assert.equal(status(['--task', 'done', '--message', '3.3'], env).err,
-      'owner message 3.3 has no finished turn yet; only an earlier message whose turn has finished takes a task state\nNothing changed.\nignite status -h');
+      'message 3.3 has no finished turn yet; only an earlier message whose turn has finished takes a task state\nNothing changed.\nignite status -h');
     assert.match(status(['--task', 'done', '--message', '1.1'], { ...env, IGNITE_CONVERSATION: 'T1:C9:9.9' }).err,
       /^the running turn belongs to T1:C1:1.1, not T1:C9:9.9\n/);
     assert.equal(box.store.liveStatuses().map((row) => row.rev).join(), before);
@@ -1039,24 +1226,29 @@ test('ignite status: refuses an unknown state, outside a turn and a missing --me
   }
 });
 
-test('ignite status: declares the running turn\'s state and sets an earlier message\'s task', async () => {
+test('ignite status: declares the running turn\'s state on the latest message and sets an earlier task by either ts', async () => {
   const box = turnHome();
   try {
     const env = { RBTV_AGENT_HOME: box.home, IGNITE_CONVERSATION: box.key };
     for (const state of ['gathering', 'thinking', 'making', 'orchestrating']) {
       const done = status([state], env);
       assert.equal(done.code, 0, done.err);
-      assert.equal(done.out, `${state} shown on 2.2\n`);
-      assert.equal(box.store.getLiveStatus('C1', '2.2').agent, state);
+      assert.equal(done.out, `${state} shown on 3.3\n`);
+      assert.equal(box.store.getLiveStatus('C1', '3.3').agent, state);
     }
     const json = status(['thinking', '--json'], env);
-    assert.deepEqual(JSON.parse(json.out), { state: 'thinking', message: '2.2' });
-    assert.deepEqual({ ...box.store.getLiveStatus('C1', '1.1') }.task, 'question');
+    assert.deepEqual(JSON.parse(json.out), { state: 'thinking', message: '3.3' });
+    assert.deepEqual(layers(box.store, '1.5'), { system: null, agent: null, task: 'question' });
+    // The owner message's ts finds the reply that keeps its task; the reply's own ts finds it too.
     const marked = status(['--task', 'done', '--message', '1.1'], env);
     assert.equal(marked.code, 0, marked.err);
-    assert.equal(marked.out, 'task done shown on 1.1\n');
-    const row = box.store.getLiveStatus('C1', '1.1');
-    assert.deepEqual([row.system, row.agent, row.task], ['running', null, 'done']);
+    assert.equal(marked.out, 'task done shown on 1.5\n');
+    assert.deepEqual(layers(box.store, '1.5'), { system: null, agent: null, task: 'done' });
+    assert.deepEqual(layers(box.store, '1.1'), { system: null, agent: null, task: null });
+    const again = status(['--task', 'caveats', '--message', '1.5', '--json'], env);
+    assert.deepEqual(JSON.parse(again.out), { task: 'caveats', message: '1.5' });
+    const row = box.store.getLiveStatus('C1', '1.5');
+    assert.deepEqual([row.system, row.agent, row.task, row.kept, row.kept_for], [null, null, 'caveats', 'caveats', '1.1']);
     // A turn that answers no owner message has nowhere to show the state.
     const run = box.store.getActiveRun();
     box.store.db.prepare('UPDATE live_status SET run_id=NULL WHERE run_id=?').run(run.id);
@@ -1096,8 +1288,9 @@ test('legend: the modal, its header, and the heading and rows of each group as a
     'divider', 'section', 'fields 8',
   ]);
   assert.deepEqual(view.blocks[0], { type: 'header', text: { type: 'plain_text', text: 'What the reactions mean' } });
-  assert.deepEqual(view.blocks[1], { type: 'context', elements: [mrkdwn('Each owner message carries up to two reactions. '
-    + 'The left one is the system and stays still. The right one is the agent while it works, then the task once it replies.')] });
+  assert.deepEqual(view.blocks[1], { type: 'context', elements: [mrkdwn('The latest message of a thread carries up to two reactions. '
+    + 'The left one is the system and stays still. The right one is the agent while it works, then the task once it replies. '
+    + 'Earlier messages keep their final task.')] });
   assert.deepEqual(view.blocks[3], { type: 'section', text: mrkdwn('*System* · left · stays still') });
   assert.deepEqual(view.blocks[4].fields.slice(0, 2), [mrkdwn(':hourglass_flowing_sand: *Queued*'), mrkdwn('Received; waiting for a turn to start.')]);
   assert.deepEqual(view.blocks[6], { type: 'section', text: mrkdwn('*Agent* · right · moves while it works') });

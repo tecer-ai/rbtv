@@ -14,10 +14,13 @@
 //   Slack confirms channel and ts. Harness stdout is never read here.
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
-//   A row with payload.mark { channel, ts, task? } answers that owner message: once every row carrying
-//   its mark is delivered, the message's live status shows that task in place of its agent state;
-//   when one gives up, its system state is failed (live-status.js). Each is written in the
-//   transaction that records the delivery or the give-up.
+//   A row delivered into its conversation's thread becomes a message of that conversation's live
+//   status (live-status.js delivered), which follows the thread's latest message. A row with
+//   payload.mark { channel, ts, runId?, task? } is a reply of the turn that answered that owner
+//   message: once every row of that turn (its runId; channel and ts for a mark without one) is
+//   delivered, the last one keeps the task, which replaces the turn's agent state; when one gives up,
+//   the live system state is failed and nothing moves. Each is written in the transaction that
+//   records the delivery or the give-up.
 
 const { MAX_ATTEMPTS } = require('./store.js');
 const live = require('./live-status.js');
@@ -73,18 +76,30 @@ function markOf(row) {
   return mark?.channel && mark?.ts ? mark : null;
 }
 
-function showDelivered(store, row, deps) {
+// The turn a delivered row answers, as live-status.js delivered takes it: { ts, runId?, task? }, with
+// the task once every row of that turn is delivered; null for a row with no mark.
+function answerOf(store, mark) {
+  const answer = { ts: mark.ts, ...(mark.runId && { runId: mark.runId }) };
+  if (!mark.task) return answer;
+  const sameRun = mark.runId ? " AND json_extract(payload, '$.mark.runId')=?" : '';
+  const open = store.db.prepare(`SELECT COUNT(*) AS n FROM outbox WHERE state!='delivered'
+    AND json_extract(payload, '$.mark.channel')=? AND json_extract(payload, '$.mark.ts')=?${sameRun}`)
+    .get(mark.channel, mark.ts, ...(mark.runId ? [mark.runId] : [])).n;
+  return open ? answer : { ...answer, task: mark.task };
+}
+
+function showDelivered(store, row, saved, target, deps) {
+  // A row posted as a new root is not a message of the thread the status follows.
+  if (target.asRoot) return;
   const mark = markOf(row);
-  if (!mark) return;
-  let open = 1;
+  let answer = null;
   try {
-    open = store.db.prepare(`SELECT COUNT(*) AS n FROM outbox WHERE state!='delivered'
-      AND json_extract(payload, '$.mark.channel')=? AND json_extract(payload, '$.mark.ts')=?`)
-      .get(mark.channel, mark.ts).n;
+    answer = mark ? answerOf(store, mark) : null;
   } catch {
     return; // A status never breaks a delivery that Slack already confirmed.
   }
-  if (!open) live.delivered(store, mark, deps.log);
+  const reply = { conversationKey: saved.conversationKey || row.conversation_key, channel: saved.channel, ts: saved.ts };
+  live.delivered(store, reply, answer, deps.log);
 }
 
 function giveUp(store, row, message, deps) {
@@ -92,7 +107,7 @@ function giveUp(store, row, message, deps) {
   store.transaction(() => {
     store.stopOutbox(row.id, message);
     const mark = markOf(row);
-    if (mark) live.deliveryFailed(store, mark, deps.log);
+    if (mark) live.deliveryFailed(store, { ...mark, conversationKey: row.conversation_key }, deps.log);
     if (String(row.id).startsWith('hold:') || !conv) return;
     store.enqueueOutbox({
       id: `hold:delivery:${row.id}`,
@@ -150,7 +165,7 @@ async function deliverOne(store, row, deps, now) {
         ts: confirmed.ts,
         asRoot: target.asRoot,
       });
-      showDelivered(store, row, deps);
+      showDelivered(store, row, marked, target, deps);
       return marked;
     });
     return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };

@@ -1,6 +1,6 @@
 'use strict';
 
-// Live status in Slack: the reactions that show an owner message's Ignite state. Ignite names the
+// Live status in Slack: the reactions that show a message's Ignite state. Ignite names the
 // states (core/ignite/capabilities/tools/ignite/live-status.js) and knows no emoji; this file holds
 // the Slack emoji for each state, the order rules and the legend that explains them. Pure logic: it
 // makes no network call and keeps no timer. The caller passes the two reaction functions, the clock
@@ -30,6 +30,8 @@
 //       Makes the calls that bring the reactions to the state set, one at a time:
 //       - the system emoji is on the left at every moment: when it changes, the emoji on its right
 //         is removed first, the system replaced, and the right one added again ADD_GAP_MS later;
+//         when it goes with none to replace it, an agent frame or task not wanted goes first, then
+//         the system, and a task wanted stays where it is;
 //       - an agent frame or a task emoji is replaced remove first, then add;
 //       - nothing is added on a side while another name of that side may still be on the message:
 //         a name is gone only once Slack acknowledged its removal;
@@ -156,6 +158,10 @@ function liveStatus({ addReaction, removeReaction, now = Date.now, log, record }
     const systems = one.order.filter(isSystem);
     const rights = one.order.filter((name) => !isSystem(name));
     const sysInPlace = !unsure.some(isSystem) && (sys ? systems.length === 1 && systems[0] === sys : !systems.length);
+    if (!sysInPlace && !sys) {
+      // Nothing comes to the left: the right side keeps a task it still shows.
+      return { remove: rights.find((name) => name !== right) || unsure.find(isSystem) || systems[0], replaced: false };
+    }
     if (!sysInPlace) {
       // The right side goes first, so the new system emoji lands on the left.
       const first = unsure.find((name) => !isSystem(name)) || rights[0]
@@ -340,8 +346,8 @@ function legendView(meaning) {
   const mrkdwn = (text) => ({ type: 'mrkdwn', text });
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: 'What the reactions mean' } },
-    { type: 'context', elements: [mrkdwn('Each owner message carries up to two reactions. The left one is the system and stays still. '
-      + 'The right one is the agent while it works, then the task once it replies.')] },
+    { type: 'context', elements: [mrkdwn('The latest message of a thread carries up to two reactions. The left one is the system and stays still. '
+      + 'The right one is the agent while it works, then the task once it replies. Earlier messages keep their final task.')] },
   ];
   for (const [layer, heading] of LEGEND_GROUPS) {
     blocks.push({ type: 'divider' }, { type: 'section', text: mrkdwn(heading) });

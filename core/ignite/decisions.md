@@ -2,7 +2,7 @@
 
 ## Live status
 
-[Live status](capabilities/glossary/live-status.md) shows each owner message's state in three layers: system, agent and task. Owner decisions, 2026-10-15:
+[Live status](capabilities/glossary/live-status.md) shows each conversation's state in three layers, system, agent and task, on the latest message of its thread. Owner decisions, 2026-10-15:
 
 - **Ignite owns the states; connectors own the medium.** Ignite names no emoji. Each communication connector shows the states in its own medium; Slack is the one built. A new medium adds a connector, not a state.
 - **Only the agent state moves.** A tick removes the agent's frame and then adds the next, so the order system, then agent or task, holds by itself. The owner prefers a brief gap to two frames shown at once.
@@ -11,6 +11,7 @@
 - **The waking service shows the states.** The command records the state and exits. The service sees every agent, so it alone shares Slack's reaction budget among them: 45 adds a minute across all agents, half the rate at which Slack answered HTTP 429 in a measured burst.
 - **The Slack side is pure logic in the Slack connector**, handed the reaction functions by its caller, so it works with Ignite's own Slack client.
 - **The legend comes from the code and is open to everyone** (owner, 2026-10-16). `/legend` opens, for any user of the workspace, a modal that explains every reaction. Its rows are the states of Ignite's contract in order, each with its one-sentence meaning kept beside the state there, and the emoji of the Slack connector's mapping; renaming or adding a state or an emoji changes the legend with no other edit.
+- **The status follows the thread's latest message** (owner, 2026-10-16), the bot's own replies included, so the owner finds it at the bottom of the thread. The message it leaves keeps its own task emoji: the owner chose a history of ✅ ⚠️ ❓ ⏹️ per message over a single indicator. A later turn's agent state hides a task on the latest message until the status moves on, because agent and task never show together.
 - **Waiting on workers is an agent state.** It is not a task or system state: a turn ending `waiting_workers` shows the agent waiting, ticking slowly, until the next turn of that conversation starts or the work stops waiting (stopped or held).
 
 ## Payment gate

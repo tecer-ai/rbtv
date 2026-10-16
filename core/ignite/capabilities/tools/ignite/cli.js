@@ -643,7 +643,7 @@ function checkStatus({ opts, positionals }, deps) {
   if (opts.task != null || opts.message != null) {
     if (positionals.length) fail(`unexpected word '${positionals[0]}': status --task takes no state word${again}`);
     if (opts.task == null) fail(`--message requires --task ${live.TASK.join('|')}${again}`);
-    if (opts.message == null) fail(`--task requires --message <ts>, the Slack timestamp of an earlier owner message${again}`);
+    if (opts.message == null) fail(`--task requires --message <ts>, the Slack timestamp of an earlier owner message or reply${again}`);
     if (!live.TASK.includes(opts.task)) fail(`unknown task state: ${opts.task}\nchoose from ${live.TASK.join(', ')}${again}`);
   } else if (!positionals.length) {
     fail(`status requires a state: ${live.DECLARED.join(', ')}${again}`);
@@ -659,7 +659,7 @@ function cmdStatus(ctx, flags, deps, { opts, positionals }) {
   const key = (deps.env || process.env).IGNITE_CONVERSATION;
   if (opts.task != null) {
     const row = live.markTask(ctx.store, key, opts.message, opts.task);
-    emit(deps, flags, { task: row.task, message: row.ts }, `task ${row.task} shown on ${row.ts}\n`);
+    emit(deps, flags, { task: row.kept, message: row.ts }, `task ${row.kept} shown on ${row.ts}\n`);
     return 0;
   }
   const row = live.declare(ctx.store, key, positionals[0]);

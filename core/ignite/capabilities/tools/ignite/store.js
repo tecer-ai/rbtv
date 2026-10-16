@@ -52,19 +52,24 @@
 //   answer plus advanced; a refused wake (agent_hold, refused) advances nothing, a duplicate advances
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id) — rows carry check_tool, null for none
 // pendingScheduleIds() — ids of schedule wakes still pending or running, including spent one-shots
-// setLiveStatus({ conversationKey?, channel, ts, system?, agent?, task?, runId? }) — the live status of one
-//   owner message (live-status.js names the states). A field left out keeps its value, null clears it.
-//   conversationKey is needed only to insert: without it, a message with no row is skipped (null).
-//   Every write takes the next rev, so a reader asks for the rows changed since the rev it last read.
-// getLiveStatus(channel, ts) / liveStatusOfRun(runId)
+// setLiveStatus({ conversationKey?, channel, ts, system?, agent?, task?, runId?, kept?, keptFor? }) — the live
+//   status of one message of a conversation, an owner message or a reply (live-status.js names the states and
+//   says which message shows what): the layers it shows, the run they belong to, and kept, the task it keeps
+//   once the live status leaves it, with keptFor, the owner message that task answers. A field left out keeps
+//   its value, null clears it. conversationKey is needed only to insert: without it, a message with no row is
+//   skipped (null). Every write takes the next rev, so a reader asks for the rows changed since the rev it
+//   last read. A row of a database made before kept existed keeps its task, which answers its own message.
+// getLiveStatus(channel, ts)
 // liveStatuses({ sinceRev, conversationKey }) — rows with rev above sinceRev, oldest change first
-// liveStatusesOfWork(workId) — the rows whose last turn (run_id) belongs to that work
 // setLiveShown(channel, ts, shown) — records what the message's reactions show (the Slack connector's
 //   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it. A row
 //   is inserted with shown {} (nothing shown yet); a NULL shown, as in a row made before the column, is
 //   an unknown display
 // getRun(runId) — a run with its queue row's conversation_key, work_id and kind, or null
 // ownerTs(workId) — Slack ts of the latest owner message queued for that work, or null
+// pendingOwnerTs(conversationKey) — Slack ts of the conversation's owner messages that wait for a turn (queue
+//   state pending), oldest first
+// ownerTurnFinished(conversationKey, ts) — true when a turn that took that owner message has finished
 // transaction(fn)
 
 const fs = require('node:fs');
@@ -234,6 +239,8 @@ class Store {
         task TEXT,
         run_id TEXT,
         shown TEXT,
+        kept TEXT,
+        kept_for TEXT,
         rev INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (channel, ts)
@@ -253,6 +260,12 @@ class Store {
       }
       const live = this.db.prepare('PRAGMA table_info(live_status)').all().map((column) => column.name);
       if (!live.includes('shown')) this.db.exec('ALTER TABLE live_status ADD COLUMN shown TEXT');
+      if (!live.includes('kept')) {
+        this.db.exec('ALTER TABLE live_status ADD COLUMN kept TEXT');
+        this.db.exec('ALTER TABLE live_status ADD COLUMN kept_for TEXT');
+        // Every row then was an owner message: the task it shows is its own.
+        this.db.exec('UPDATE live_status SET kept=task, kept_for=ts WHERE task IS NOT NULL');
+      }
       // Older databases allowed one pending timer wake per agent; a wake is now identified by its queue id.
       this.db.exec('DROP INDEX IF EXISTS queue_one_pending_schedule');
     });
@@ -961,19 +974,22 @@ class Store {
     return this.db.prepare('DELETE FROM schedules WHERE id=?').run(id).changes === 1;
   }
 
-  setLiveStatus({ conversationKey: conversationKeyValue = null, channel, ts, system, agent, task, runId }) {
+  setLiveStatus({ conversationKey: conversationKeyValue = null, channel, ts, system, agent, task, runId, kept, keptFor }) {
     if (!channel || !ts) throw new Error('live status channel and ts required');
     return this.transaction(() => {
       const row = this.getLiveStatus(channel, ts);
       if (!row && !conversationKeyValue) return null;
       const keep = (value, current) => (value === undefined ? current ?? null : value);
       const rev = this.db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 AS rev FROM live_status').get().rev;
-      this.db.prepare(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, shown, rev, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+      this.db.prepare(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, kept, kept_for,
+        shown, rev, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
         ON CONFLICT(channel, ts) DO UPDATE SET system=excluded.system, agent=excluded.agent, task=excluded.task,
-          run_id=excluded.run_id, rev=excluded.rev, updated_at=excluded.updated_at`).run(
+          run_id=excluded.run_id, kept=excluded.kept, kept_for=excluded.kept_for, rev=excluded.rev,
+          updated_at=excluded.updated_at`).run(
         channel, ts, row?.conversation_key ?? conversationKeyValue,
         keep(system, row?.system), keep(agent, row?.agent), keep(task, row?.task), keep(runId, row?.run_id),
+        keep(kept, row?.kept), keep(keptFor, row?.kept_for),
         rev, Date.now(),
       );
       return this.getLiveStatus(channel, ts);
@@ -982,15 +998,6 @@ class Store {
 
   getLiveStatus(channel, ts) {
     return this.db.prepare('SELECT * FROM live_status WHERE channel=? AND ts=?').get(channel, ts) || null;
-  }
-
-  liveStatusOfRun(runId) {
-    return this.db.prepare('SELECT * FROM live_status WHERE run_id=?').get(runId) || null;
-  }
-
-  liveStatusesOfWork(workId) {
-    return this.db.prepare(`SELECT l.* FROM live_status l JOIN runs r ON r.id=l.run_id JOIN queue q ON q.id=r.queue_id
-      WHERE q.work_id=? ORDER BY l.rev`).all(workId);
   }
 
   setLiveShown(channel, ts, shown) {
@@ -1012,6 +1019,17 @@ class Store {
     const row = this.db.prepare(`SELECT payload FROM queue WHERE work_id=? AND kind='owner'
       ORDER BY created_at DESC, id DESC LIMIT 1`).get(workId);
     return row ? parse(row.payload)?.ts || null : null;
+  }
+
+  pendingOwnerTs(conversationKeyValue) {
+    return this.db.prepare(`SELECT payload FROM queue WHERE conversation_key=? AND kind='owner' AND state='pending'
+      ORDER BY created_at, id`).all(conversationKeyValue).map((row) => parse(row.payload)?.ts).filter(Boolean);
+  }
+
+  ownerTurnFinished(conversationKeyValue, ts) {
+    return Boolean(this.db.prepare(`SELECT 1 FROM runs r JOIN queue q ON q.id=r.queue_id
+      WHERE q.conversation_key=? AND q.kind='owner' AND json_extract(q.payload, '$.ts')=? AND r.state='finished'
+      LIMIT 1`).get(conversationKeyValue, ts));
   }
 }
 
