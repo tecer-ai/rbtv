@@ -31,6 +31,8 @@
 // createChannel(name) → { id, name }
 // joinChannel(id) → { id }   (already_in_channel is success)
 // inviteUser(id, userId) → { id }   (already_in_channel is success)
+// openIm(userId) → the id of the bot's DM with that user (conversations.open, im:write). Post there,
+//   never to a user id: Slack may route a user-id post to the user's Slackbot DM.
 // archiveChannel(id)   (already_archived is success)
 // uploadFile({ channel, threadTs?, file, text?, as? }) → { ts, files }
 //   files.getUploadURLExternal + POST bytes + files.completeUploadExternal (returns message ts;
@@ -269,6 +271,13 @@ class Slack {
       if (this.tolerated(error, 'already_in_channel')) return { id: channel };
       throw error;
     }
+  }
+
+  async openIm(user) {
+    if (!user) throw new Error('openIm requires user');
+    const data = await this.api('conversations.open', { users: user });
+    if (!data.channel?.id) throw new Error('conversations.open returned no channel');
+    return data.channel.id;
   }
 
   async inviteUser(channel, user) {

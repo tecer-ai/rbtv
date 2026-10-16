@@ -4,7 +4,8 @@
 // deliverPending(store, deps) → [{ id, delivered, stopped?, channel?, ts?, error? }]
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
 //   Every post and upload carries the agent's name and avatar from agent.json (deps.home).
-//   payload.imUser is posted as the channel (Slack accepts a user id; slack.js has no open-DM call).
+//   A user id target (payload.imUser, or a DM agent's board channel) is opened with slack.openIm and
+//   posted to the returned DM: Slack may route a post addressed to a user id to the Slackbot DM.
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
 //   Pending rows are reloaded before delivery so later replies follow the newly bound thread.
 //   The reply text is posted once (postMessage). Each file, including a synthesized voice file,
@@ -73,6 +74,10 @@ function targetOf(row, conv) {
   return { channel, threadTs, asRoot };
 }
 
+function isUserId(channel) {
+  return /^[UW][A-Z0-9]+$/.test(String(channel || ''));
+}
+
 function markOf(row) {
   const mark = row.payload?.mark;
   return mark?.channel && mark?.ts ? mark : null;
@@ -135,11 +140,16 @@ async function deliverOne(store, row, deps, now) {
     return { id: row.id, delivered: false, stopped: true, error: 'unknown conversation' };
   }
   const target = targetOf(row, conv);
-  const { channel, threadTs } = target;
+  const { threadTs } = target;
+  let { channel } = target;
   const text = typeof row.payload?.text === 'string' ? row.payload.text : '';
   const files = Array.isArray(row.payload?.files) ? row.payload.files.slice() : [];
   const as = senderOf(deps.home);
   try {
+    if (isUserId(channel)) {
+      if (typeof deps.slack?.openIm !== 'function') throw new Error('slack.openIm required');
+      channel = await deps.slack.openIm(channel);
+    }
     if (row.payload?.audio) {
       if (typeof deps.audio?.speak !== 'function') throw new Error('audio.speak required');
       const voice = voiceOf(store, deps.home);

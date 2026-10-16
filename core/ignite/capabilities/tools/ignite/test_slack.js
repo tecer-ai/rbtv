@@ -259,6 +259,13 @@ test('inviteUser', async () => {
   assert.deepEqual(calls[0].body, { channel: 'C1', users: 'UOWNER' });
 });
 
+test('openIm', async () => {
+  const { slack, calls } = harness({ 'conversations.open': { ok: true, channel: { id: 'DOWNER' } } });
+  assert.equal(await slack.openIm('UOWNER'), 'DOWNER');
+  assert.equal(calls[0].method, 'conversations.open');
+  assert.deepEqual(calls[0].body, { users: 'UOWNER' });
+});
+
 test('inviteUser-already-in', async () => {
   const { slack } = harness({ 'conversations.invite': { ok: false, error: 'already_in_channel' } });
   assert.deepEqual(await slack.inviteUser('C1', 'UOWNER'), { id: 'C1' });

@@ -141,6 +141,7 @@ function fakeSlack() {
       slack.uploads.push(args);
       return { ts: '8.1', files: [args.file] };
     },
+    async openIm(user) { return `D-${user}`; },
     // A faithful Slack: adding a reaction twice and removing an absent one are errors.
     marks: new Map(),
     marksOf(channel, ts) { return [...(slack.marks.get(`${channel}:${ts}`) || [])]; },
@@ -860,7 +861,9 @@ test('outbox never double-posts when delivery is retried', async (ctx) => {
   });
   t += 1000;
   await deliverPending(box.store, deps);
-  const dm = box.slack.posts.find((post) => post.channel === 'UOWNER');
+  // The literal is the guard: a post addressed to the user id can land in the owner's Slackbot DM.
+  assert.equal(box.slack.posts.some((post) => post.channel === 'UOWNER'), false);
+  const dm = box.slack.posts.find((post) => post.channel === 'D-UOWNER');
   assert.ok(dm);
   assert.equal(dm.threadTs, undefined);
   assert.equal(box.store.getConversation(proactive.conversationKey), null);

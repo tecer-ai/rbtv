@@ -353,6 +353,20 @@ test('a give-up and its failed system state are written in one transaction', asy
   assert.deepEqual(shown(store), { 1.1: { system: 'failed', agent: null, task: null } });
 });
 
+test('a DM agent board post goes to the DM that conversations.open returns, never to the user id', async (store) => {
+  const key = 'T1:UOWNER:board';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'UOWNER', rootTs: 'board' });
+  store.enqueueOutbox({ id: 'b1', conversationKey: key, payload: { text: 'check' } });
+  const posts = [];
+  const [result] = await deliverPending(store, { slack: {
+    async openIm(user) { assert.equal(user, 'UOWNER'); return 'DOWNER'; },
+    async postMessage(args) { posts.push(args); return { channel: args.channel, ts: '9.1' }; },
+  } });
+  assert.equal(result.delivered, true);
+  // The literal is the guard: Slack may route a user-id post to the owner's Slackbot DM.
+  assert.deepEqual(posts.map((post) => post.channel), ['DOWNER']);
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const store = new Store(':memory:');
