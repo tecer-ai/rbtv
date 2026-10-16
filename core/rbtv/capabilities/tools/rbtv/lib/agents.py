@@ -20,7 +20,7 @@ from .fsio import write_file
 from .link_paths import absolute_links
 from .operations import do_install, do_uninstall
 from .selection import (_split_part_keys, close_names_sentence, iter_booked_files,
-                        iter_catalog_parts, resolve_name)
+                        iter_catalog_parts, parts_of_components, resolve_name, resolve_needs)
 from .state import read_state, file_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
@@ -623,10 +623,14 @@ def _copy_shipped_tree(source: Path, dest: Path) -> dict[str, str]:
 
 
 def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict,
-              dry: bool, given: dict | None = None, on: tuple[str, ...] = ()) -> dict:
+              dry: bool, given: dict | None = None, on: tuple[str, ...] = (),
+              port_choices: dict | None = None, ask=None) -> dict:
     """Apply an agent folder, placing it first when a component ships it.
     `given` holds --harness, --model and --effort; `on` the --on values of the
-    agents named among the files."""
+    agents named among the files. A need of a component among the files is met
+    by the component that provides it, which the folder records as its own
+    file: one provider installs; several take `port_choices` ({port: name},
+    the --<port> NAME flag) or `ask`, and refuse without either."""
     part = unplaced_shipped_agent(root, raw, catalog)
     home = agent_home(root, raw) if part else resolve_agent(root, raw)
     if part:
@@ -651,6 +655,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     placed = None
     explicit = _keys(names, catalog)
     declared = _keys(list(state["files"]), catalog)
+    needs: list[dict] = []
     before_packs = set(state["packs"])
     enabled = _foundations(catalog, before_packs | packs, state, packs)
     if part:
@@ -662,6 +667,9 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
             probe[row["id"]] = row
         local = _local_keys(probe, home)
         wanted = declared | explicit | pack_files(catalog, enabled) | local
+        needs = _agent_needs(probe, wanted, home, port_choices, ask)
+        explicit |= parts_of_components(probe, [row["component"] for row in needs])
+        wanted |= explicit
         receiving = list(HARNESSES)
         picked, parts = _split_part_keys(wanted)
         # Refuse invalid source or an output-name collision before the folder exists.
@@ -686,6 +694,9 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
             _checked_agent(home, state)
         catalog, local = _with_local(catalog, home)
         wanted = declared | explicit | pack_files(catalog, enabled) | local
+        needs = _agent_needs(catalog, wanted, home, port_choices, ask)
+        explicit |= parts_of_components(catalog, [row["component"] for row in needs])
+        wanted |= explicit
         receiving = list(HARNESSES)
         picked, parts = _split_part_keys(wanted)
     named = subagents.named_agents(catalog, explicit)
@@ -713,11 +724,22 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     touched = bool(added or packs_on or written or launch or repo_acted
                    or result.get("written") or result.get("deleted"))
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "placed": placed,
+            "needs": needs,
             "packs": sorted(enabled), "written": (["agent.json"] if touched and not dry else []) + written,
             "files": sorted(wanted), "files_removed": [], "was": len(before), "added": added,
             "packs_on": packs_on, "harness_files": result, "dry_run": dry,
             "sub_agents": subagents.describe(named, sub_agents, recorded, receiving,
                                              catalog, home)}
+
+
+def _agent_needs(catalog: dict, wanted: set[str], home: Path, port_choices: dict | None, ask) -> list[dict]:
+    """The components an agent's files need and no file of the folder provides."""
+    picked, _parts = _split_part_keys(wanted)
+    try:
+        booked = (read_state(home).get("components") or {}).keys() if home.is_dir() else []
+    except Refuse:
+        booked = []
+    return resolve_needs(catalog, picked, booked, port_choices, ask)
 
 
 def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> dict:

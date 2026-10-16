@@ -236,6 +236,72 @@ def resolve_selection(args, catalog: dict[str, dict],
     return selected
 
 
+def parts_of_components(catalog: dict[str, dict], components) -> set[str]:
+    """Every part key of the named components."""
+    wanted = set(components)
+    return {p["key"] for p in iter_catalog_parts(catalog) if p["component"] in wanted}
+
+
+def _port_of(catalog: dict[str, dict], providers: list[str], operation: str) -> str:
+    """The port a need's flag is named after: the one `type` every provider shares, else the operation's noun."""
+    types = {catalog[p].get("type") for p in providers if catalog[p].get("type")}
+    return types.pop() if len(types) == 1 else operation.split(".", 1)[0]
+
+
+def resolve_needs(catalog: dict[str, dict], picked, installed, choices: dict | None = None,
+                  ask=None) -> list[dict]:
+    """The components to install beside `picked` so that every `needs` of the
+    picked components (and of what they bring) is met: for each operation no
+    picked or installed component provides, the one component that provides
+    it; with several, the one `choices` names under the port's flag
+    (`{"messaging": "slack"}` for `--messaging slack`), else the one `ask(question,
+    names)` answers, else a `needs-choice` refusal naming the choices and the
+    flag, so the agent path never waits on a question. Returns one row per
+    component added: {"component", "operation", "for"}."""
+    choices = dict(choices or {})
+    have = set(picked) | set(installed)
+    added: list[dict] = []
+    queue = list(picked)
+    seen: set[str] = set()
+    while queue:
+        cid = queue.pop(0)
+        if cid in seen:
+            continue
+        seen.add(cid)
+        for op in (catalog.get(cid) or {}).get("needs") or []:
+            providers = sorted(c for c, rec in catalog.items() if op in (rec.get("provides") or []))
+            if any(p in have for p in providers):
+                continue
+            if not providers:
+                raise Refuse("needs-unmet", f"{cid} needs {op}, which no component provides; "
+                             "install or write a component whose record provides it")
+            if len(providers) == 1:
+                chosen = providers[0]
+            else:
+                port = _port_of(catalog, providers, op)
+                names = {catalog[p]["component"]: p for p in providers}
+                flag = f"--{port}"
+                options = " or ".join(f"{flag} {name}" for name in names)
+                wanted = choices.get(port)
+                if wanted is not None:
+                    if wanted not in names:
+                        raise Refuse("needs-choice", f"{cid} needs {op}, which {' and '.join(names)} provide; "
+                                     f"{flag} {wanted} names none of them: give {options}")
+                    chosen = names[wanted]
+                elif ask is not None:
+                    answer = ask(f"{cid} needs {op}, which {' and '.join(names)} provide. Which one installs?", list(names))
+                    if answer not in names:
+                        raise Refuse("needs-choice", f"{cid} needs {op}: {answer!r} is none of {', '.join(names)}")
+                    chosen = names[answer]
+                else:
+                    raise Refuse("needs-choice", f"{cid} needs {op}, which {' and '.join(names)} provide: "
+                                 f"add {options} to choose the one that installs")
+            have.add(chosen)
+            added.append({"component": chosen, "operation": op, "for": cid})
+            queue.append(chosen)
+    return added
+
+
 def _sel(verb: str = "add", **kw):
     base = dict(all=False, names=[], module=[], component=[], method=[],
                 exclude_module=[], exclude_component=[], exclude_method=[])

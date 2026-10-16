@@ -6,14 +6,59 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
+import re
 
 from discovery import Refuse
 
 from . import present
 from .constants import (BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES,
-                        LISTING_TYPES, ROOT_UPDATE_SCOPES, VERSION)
+                        LISTING_TYPES, REPO_ROOT, ROOT_UPDATE_SCOPES, VERSION)
 from .help_pages import PAGES
 from .subagents import ON_FORM
+
+
+PORT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def port_names() -> list[str]:
+    """The ports the repository's component records name in `type` and `serves`,
+    read from `<module>/<component>/<component>.json`: one `--<port> NAME` flag
+    each on `add` and `agent add`, naming the provider of a need when more than
+    one component provides it."""
+    found: set[str] = set()
+    for record in sorted(REPO_ROOT.glob("*/*/*.json")):
+        if record.stem != record.parent.name or record.parent.parent.name.startswith("."):
+            continue
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for value in [data.get("type"), *(data.get("serves") or [])]:
+            if isinstance(value, str) and PORT_NAME.match(value):
+                found.add(value)
+    return sorted(found)
+
+
+class PortChoice(argparse.Action):
+    """`--<port> NAME`: the component that provides a need of that port when more
+    than one does; collected as {port: NAME} under `port_choices`."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        current = dict(getattr(namespace, "port_choices", None) or {})
+        current[option_string.lstrip("-")] = values
+        setattr(namespace, "port_choices", current)
+
+
+def port_flags(dest) -> None:
+    taken = set(dest._option_string_actions)
+    for port in port_names():
+        if f"--{port}" in taken:
+            continue
+        dest.add_argument(f"--{port}", action=PortChoice, dest="port_choices", default=None,
+                          metavar="NAME")
 
 
 class InstallerParser(argparse.ArgumentParser):
@@ -166,6 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
                        choices=(*GUIDANCE_NAMES, BASIS_NONE))
     s_add.add_argument("noun", nargs="*", metavar="NAME")
     tree_flags(s_add, on_verb=True)
+    port_flags(s_add)
     page(s_add, "add")
 
     s_rm = sub.add_parser("rm", allow_abbrev=False)
@@ -229,6 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_ag_add.add_argument("--model")
     s_ag_add.add_argument("--effort")
     s_ag_add.add_argument("--on", action="append", default=[], metavar=ON_FORM)
+    port_flags(s_ag_add)
     page(s_ag_add, "agent add")
     s_ag_remove = agent_sub.add_parser("remove")
     s_ag_remove.add_argument("agent", metavar="AGENT")

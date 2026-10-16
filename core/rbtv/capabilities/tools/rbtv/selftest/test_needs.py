@@ -83,21 +83,21 @@ def needs_resolution(ctx) -> None:
     check("NR-met — a second add finds the need met and adds nothing",
           again_code == 0 and _booked(target) == ["connectors/talker", "core/wanter"], f"{again_code} {again_message} {again_said[:200]}")
 
-    two = _tree(tmp / "nr-two", ["talker", "talker2"])
+    two = _tree(tmp / "nr-two", ["chat", "chat2"])
     target2 = tmp / "nr-two-installation"
     target2.mkdir()
     code, said, message = _add(target2, two, "core/wanter")
     check("NR-two-refused — two providers and no terminal: refused, naming the choices and the flag",
-          code == "needs-choice" and "talker" in message and "talker2" in message
-          and "--messaging talker" in message and _booked(target2) == [], f"{code} {message} {_booked(target2)}")
+          code == "needs-choice" and "chat" in message and "chat2" in message
+          and "--messaging chat" in message and _booked(target2) == [], f"{code} {message} {_booked(target2)}")
 
-    code, said, message = _add(target2, two, "core/wanter", "--messaging", "talker2")
+    code, said, message = _add(target2, two, "core/wanter", "--messaging", "chat2")
     check("NR-two-flag — --messaging NAME picks the provider on the agent path",
-          code == 0 and _booked(target2) == ["connectors/talker2", "core/wanter"], f"{code} {message} {_booked(target2)}")
+          code == 0 and _booked(target2) == ["connectors/chat2", "core/wanter"], f"{code} {message} {_booked(target2)}")
 
     code, said, message = _add(tmp / "nr-two-bad", two, "core/wanter", "--messaging", "signal")
     check("NR-two-unknown — a flag naming a component that does not provide the need is refused",
-          code == "needs-choice" and "signal" in message and "talker" in message, f"{code} {message}")
+          code == "needs-choice" and "signal" in message and "chat" in message, f"{code} {message}")
 
     target3 = tmp / "nr-two-asked"
     target3.mkdir()
@@ -105,12 +105,12 @@ def needs_resolution(ctx) -> None:
 
     def ask(question: str, choices: list[str]) -> str:
         asked.append((question, list(choices)))
-        return "talker"
+        return "chat"
 
     code, said, message = _add(target3, two, "core/wanter", ask=ask)
     check("NR-two-asked — a person is asked between the two providers and the answer is installed",
-          code == 0 and asked and asked[0][1] == ["talker", "talker2"] and "message.send" in asked[0][0]
-          and _booked(target3) == ["connectors/talker", "core/wanter"], f"{code} {message} {asked} {_booked(target3)}")
+          code == 0 and asked and asked[0][1] == ["chat", "chat2"] and "message.send" in asked[0][0]
+          and _booked(target3) == ["connectors/chat", "core/wanter"], f"{code} {message} {asked} {_booked(target3)}")
 
     # The agent path: rbtv agent add takes the same flag and refuses without it.
     claude_model = _claude_model()
@@ -126,12 +126,12 @@ def needs_resolution(ctx) -> None:
         except Refuse as exc:
             refused = exc
         check("NR-agent-refused — rbtv agent add of a needing file with two providers is refused without --messaging",
-              refused is not None and refused.code == "needs-choice" and "--messaging talker" in refused.message,
+              refused is not None and refused.code == "needs-choice" and "--messaging chat" in refused.message,
               f"{refused and refused.code} {refused and refused.message}")
-        result = add_agent(ws, "scout", ["want"], set(), two, False, port_choices={"messaging": "talker2"})
+        result = add_agent(ws, "scout", ["want"], set(), two, False, port_choices={"messaging": "chat2"})
         home_state = read_state(ws / ".rbtv/agents/scout")
-        check("NR-agent-flag — rbtv agent add --messaging talker2 installs that connector in the agent folder",
-              "connectors/talker2" in (home_state.get("components") or {}) and "connectors/talker2#talker2" in result["files"],
+        check("NR-agent-flag — rbtv agent add --messaging chat2 installs that connector in the agent folder",
+              "connectors/chat2" in (home_state.get("components") or {}) and "connectors/chat2#chat2" in result["files"],
               f"{sorted(home_state.get('components') or {})} {result.get('files')}")
         ws1 = tmp / "nr-agent-one"
         ws1.mkdir()

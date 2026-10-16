@@ -527,6 +527,11 @@ async function run(argv, extra = {}) {
       const planned = new Set([
         ...JSON.parse(fs.readFileSync(path.join(__dirname, '../../../packs/ignite.json'), 'utf8')).files,
         ...JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../rbtv/packs/foundations.json'), 'utf8')).files,
+        // Ignite needs agent.run, which core/cast provides: the installer brings cast's files with the pack
+        // (connector architecture, phase 2: needs resolution).
+        ...fs.readdirSync(path.join(__dirname, '../../../../cast/capabilities/tools'), { withFileTypes: true })
+          .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(__dirname, '../../../../cast/capabilities/tools', entry.name, `${entry.name}.json`)))
+          .map((entry) => `core/cast#${entry.name}`),
       ]);
       assert.match(result.out, /pack: ignite/);
       assert.match(result.out, new RegExp(`files: 0 -> ${planned.size}`));

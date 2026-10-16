@@ -438,6 +438,11 @@ options:
   --guidance {AGENTS.md,CLAUDE.md,none}
                         instruction file you maintain, or none; required
                         on first add
+  --<port> NAME         when a chosen component needs an operation that
+                        more than one component provides, the one that
+                        installs it, by the port's name: --messaging slack.
+                        One provider installs with no flag; several and no
+                        flag ask you at a terminal and are refused otherwise
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
                         folder
@@ -781,6 +786,11 @@ options:
                         for an agent among the names: the model and
                         effort of its harness-native sub-agent; HARNESS
                         is AGENT's own harness
+  --<port> NAME         when a NAME needs an operation that more than one
+                        component provides, the one that installs it, by
+                        the port's name: --messaging slack. One provider
+                        installs with no flag and is recorded as the
+                        agent's own file; several and no flag are refused
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files

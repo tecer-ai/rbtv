@@ -25,7 +25,7 @@ from .target import (DISCOVER_CWD, DISCOVER_STATE, discover_installation, is_age
 from .state import (book_harnesses, doubled_keys, read_state, selected_packs,
                     selected_files, state_path, file_membership, write_state)
 from .catalog import catalog_packs, check_packs, module_id, pack_files
-from .selection import (
+from .selection import (parts_of_components, resolve_needs,
     _has_negative,
     _split_part_keys,
     iter_catalog_parts,
@@ -844,10 +844,29 @@ def cmd_configure(args, target: Path, catalog: dict, shadowed: list,
     raise Refuse("noun-missing", "configure needs --harness, --guidance, or both")
 
 
+def _needs_ask(args, ask):
+    """The question a person is asked between two providers of a need: the caller's `ask`, else the
+    terminal's menu when one is attached and the answer is not JSON, else None (the agent path refuses)."""
+    if ask is not None:
+        return ask
+    if getattr(args, "json", False) or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    from . import tui
+
+    def menu(question: str, names: list[str]) -> str:
+        entries = [{"label": name, "description": ""} for name in names]
+        return names[tui.select_one(question, entries)]
+    return menu
+
+
+def _needs_lines(rows: list[dict]) -> list[str]:
+    return [f"{row['component']} added: it provides {row['operation']}, which {row['for']} needs" for row in rows]
+
+
 @mutation_locked
 def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
-    del ask, shadowed
+    del shadowed
     noun = list(getattr(args, "noun", None) or [])
     if is_agent_target(target):
         agent_state(target)
@@ -887,6 +906,14 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     pack_parts = pack_files(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
+    # A need of a picked component is met by installing the component that provides it (one provider), by
+    # the --<port> NAME flag or a person's answer (several), never by a guess.
+    needs = resolve_needs(catalog, picked, (state.get("components") or {}).keys(),
+                          getattr(args, "port_choices", None), _needs_ask(args, ask))
+    if needs:
+        parts = sorted(set(parts) | parts_of_components(catalog, [row["component"] for row in needs]))
+        all_parts = sorted(set(parts) | pack_parts)
+        picked, _unused = _split_part_keys(all_parts)
     dry = bool(getattr(args, "dry_run", False))
     try:
         data = do_install(
@@ -901,6 +928,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     if not dry:
         _save_selected_files(target, add=set(parts), add_packs=requested_packs)
     data["selected_files"] = all_parts
+    data["needs"] = needs
     data["sub_agents"] = subagents.describe(
         named, sub_agents, subagents.recorded(state), harnesses, catalog, target)
     data["skipped_agents"] = skipped_agents
@@ -915,6 +943,9 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="add",
           details=getattr(args, "details", False), facts=facts)
+    if needs and not getattr(args, "json", False):
+        for line in _needs_lines(needs):
+            print(line)
     return 0
 
 
@@ -1551,7 +1582,7 @@ def _agent_repeat(args, scope: str | None = None) -> str:
 @mutation_locked
 def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
               *, ask=None) -> int:
-    del shadowed, ask
+    del shadowed
     dry = bool(getattr(args, "dry_run", False))
     verb = args.agent_verb
     why = getattr(args, "_why", "unknown")
@@ -1576,7 +1607,8 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
         raise exc
     if verb == "add":
         data = add_agent(target, args.agent, list(args.name), set(args.pack), catalog, dry,
-                         {key: getattr(args, key) for key in LAUNCH_FIELDS}, tuple(args.on))
+                         {key: getattr(args, key) for key in LAUNCH_FIELDS}, tuple(args.on),
+                         port_choices=getattr(args, "port_choices", None), ask=_needs_ask(args, ask))
     elif verb == "update":
         data = update_agent(target, args.agent, args.scope, catalog, dry)
     elif verb == "configure":
@@ -1596,6 +1628,8 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
         _print_agent_configure(data, target, why, path_arg=path_arg, details=details)
     else:
         _print_agent(data, verb, target, why, path_arg=path_arg, details=details)
+        for line in _needs_lines(data.get("needs") or []):
+            print(line)
     return 0
 
 
