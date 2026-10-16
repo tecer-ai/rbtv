@@ -150,7 +150,10 @@ async function run(fx, argv, { home = fx.home, env = {} } = {}) {
 }
 
 function child(argv, cwd) {
-  const p = spawnSync(process.execPath, [PROGRAM, ...argv], { cwd, encoding: 'utf8' });
+  // Outside any installation: the shell's own agent home must not leak in.
+  const env = { ...process.env };
+  delete env.RBTV_AGENT_HOME;
+  const p = spawnSync(process.execPath, [PROGRAM, ...argv], { cwd, encoding: 'utf8', env });
   return { code: p.status, out: p.stdout, err: p.stderr };
 }
 
@@ -260,7 +263,8 @@ test('S1 send to the owner: the three lines, the reference, and the adapter call
   const calls = fx.calls();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].op, 'message.send');
-  assert.deepEqual(calls[0].input, { contact: 'U0OWNER001', group: undefined, thread: null, text: 'Receipt saved: P-0003.pdf', as: { name: 'Sara', avatar: ':owl:' }, clientId: calls[0].input.clientId });
+  assert.deepEqual(calls[0].input, { contact: 'U0OWNER001', thread: null, text: 'Receipt saved: P-0003.pdf', as: { name: 'Sara', avatar: ':owl:' }, clientId: calls[0].input.clientId });
+  assert.equal(calls[0].input.group, undefined, 'a contact, not a group');
   assert.ok(calls[0].input.clientId, 'a stable client id is passed');
 });
 
@@ -385,16 +389,18 @@ test('S3 history: the table, the shortened text line, --full blocks, and S3j wit
     `Thread ${ref} (3 messages, via slack)`,
     '',
     'when                   from         text',
-    '2026-10-16 10:00:00Z   U0BOTSARA1   Receipt saved: P-0003.pdf',
-    '2026-10-16 10:00:30Z   U0OWNER001   Thanks. Was it the full amount? I remember the invoice...',
-    '2026-10-16 10:01:00Z   U0BOTSARA1   Done.',
+    // The times are the events' `at` values in UTC (the specification's screen shows other clock times for
+    // the same `at`s); the text is cut so the line keeps 80 columns.
+    '2026-10-16 14:13:20Z   U0BOTSARA1   Receipt saved: P-0003.pdf',
+    '2026-10-16 14:13:50Z   U0OWNER001   Thanks. Was it the full amount? I remembe...',
+    '2026-10-16 14:14:20Z   U0BOTSARA1   Done.',
     'Some texts are shortened: message history --thread REF --full shows them whole.',
   ]);
   for (const line of lines(r.out)) assert.ok(line.length <= 80, `80 columns: ${line}`);
   assert.deepEqual(fx.calls()[0].input, { conversation: 'D0OWNERDM1', thread: '1792160000.000100' });
   const full = await run(fx, ['history', '--thread', ref, '--full']);
   assert.equal(full.code, 0);
-  assert.match(full.out, /\nid {5}1792160030.000200\nwhen {3}2026-10-16 10:00:30Z\nfrom {3}U0OWNER001\ntext {3}Thanks\. Was it the full amount\? I remember the invoice being R\$ 18,00\.\n/);
+  assert.match(full.out, /\nid {5}1792160030.000200\nwhen {3}2026-10-16 14:13:50Z\nfrom {3}U0OWNER001\ntext {3}Thanks\. Was it the full amount\? I remember the invoice being R\$ 18,00\.\n/);
   assert.doesNotMatch(full.out, /shortened/);
   const json = await run(fx, ['history', '--thread', ref, '--json']);
   const body = JSON.parse(json.out);
@@ -518,9 +524,12 @@ test('S12: a text over 12,000 characters is sent as a file, exit 0', async () =>
   fs.writeFileSync(textFile, long);
   const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', '--text-file', textFile]);
   assert.equal(r.code, 0, r.err);
+  // The specification's S12 screen shows the first two lines; the Reply line of S1 is kept, since a text sent
+  // as a file starts a thread like any other message.
   assert.deepEqual(lines(r.out), [
     'Sent     to U0OWNER001 (direct) via slack, as Sara, as a file (text of 14,210 characters, limit 12,000)',
     'Ref      slack:T0BJAM8PACU:D0OWNERDM1:1792160000.000100',
+    'Reply    message reply --thread slack:T0BJAM8PACU:D0OWNERDM1:1792160000.000100 TEXT',
   ]);
   const calls = fx.calls();
   assert.deepEqual(calls.map((c) => c.op), ['message.file']);

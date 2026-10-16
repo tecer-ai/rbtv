@@ -14,6 +14,14 @@ Text uses Slack's native `markdown_text` field. Upload captions use a `markdown`
 
 Reply in the thread the request belongs to. File conversion is handled by its provider, such as `elevenlabs`; Slack transfers the resulting local file. Ignite replies go through `replies[].text` and `replies[].files`, not a second manual post; Ignite owns that delivery contract.
 
+## Messages to a contact
+
+A message to a contact, a user id (`U…`, `W…`) or a direct conversation (`D…`), is not sent by `slack send`: the wrapper refuses it (exit 2) and names `message send --to ADDRESS --via slack TEXT`, the port command that checks who may be messaged. `slack send` keeps channel posts, threads in channels and Slack's own features; `slack send -h` ends with that sentence.
+
+## Messaging adapter for Ignite and the message command
+
+`lib/messaging.js` is this connector's messaging adapter, the module the `message` port command loads in process to deliver through Slack, shaped as the [messaging contract](../../../../messaging/capabilities/methods/messaging-contract.md)'s Adapter section says: `operations` for `message.send`, `message.file`, `message.history`, `message.react`, `group.manage` and `approval.secure` over `slack.com/api`, `message.receive` refusing until phase 4 moves Ignite's listener here, and the helpers `address(value)` and `account()`. The token is the variable `SLACK_BOT_TOKEN`, read inside each call from the environment, then from the installation's `.rbtv/config/env/.env`, literally; it is never printed. `adapter-check slack` passes on it. Its tests are `test_messaging.js` beside the wrapper (`node test_messaging.js`), against a local stub of the API (`SLACK_API_URL`), with sentinel tokens.
+
 ## Write identity
 
 An account label does not prove the Slack identity. Use the account and recipient authorized by the request. Writes on accounts configured with `writes: false` additionally require a matching active grant in `.rbtv/config/slack/write-grants.yaml`. Preserve existing grants and record only the approved account, verbs and working-folder scope. The command's send help links the grant format.

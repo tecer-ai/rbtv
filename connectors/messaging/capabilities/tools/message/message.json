@@ -1,0 +1,5 @@
+{
+  "name": "message",
+  "description": "Sends a message to one address as this agent through the messaging connector named with --via, replies inside a thread it has, and reads a thread; the port command that checks who may be messaged and picks the connector. A service's own feature (canvas, reaction, voice note, label) stays in that service's command.",
+  "entry": "message.js"
+}

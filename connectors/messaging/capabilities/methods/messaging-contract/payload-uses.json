@@ -7,7 +7,7 @@
   "uses": [
     {
       "file": "legend.js",
-      "line": "// createLegend({ slack, log? }) \u2192 { handle(type, payload) }",
+      "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
       "nth": 0,
       "reads": []
     },
@@ -35,19 +35,19 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "reads": []
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 1,
       "reads": []
     },
     {
       "file": "payment-panel.js",
-      "line": "// interactionKey(payload) \u2192 the key an interaction is recorded by: a form's view id and hash, a button's action",
+      "line": "// interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action",
       "nth": 0,
       "reads": []
     },

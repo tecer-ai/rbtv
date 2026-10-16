@@ -1,11 +1,10 @@
 {
   "files": {
-    "cli.js": "6ac64219fa4d1d63d17062fe4b884bccd8ddb18ac31321217f0c8939557cc559",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
     "daemon.js": "c1d2fde2d3798d79c30163ee7b70ad7693f61ad1dbd1e51174d2d7a803666e3b",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "outbox.js": "aa9a8a9e92a78fabdd1893964b727ccd09bb0245476119b635ecd85b9c6186e8",
+    "outbox.js": "95023cf482b7e90c54000dacf007ab6b90bce568e845121b2f9843155fd93656",
     "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
@@ -572,6 +571,60 @@
     },
     {
       "file": "outbox.js",
+      "line": "function operationsOf(slack) {",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (typeof slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (typeof slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
+      "nth": 1,
+      "kind": "message"
+    },
+    {
+      "file": "outbox.js",
+      "line": "const channel = group || (typeof slack.openIm === 'function' ? await slack.openIm(contact) : contact);",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "outbox.js",
+      "line": "const channel = group || (typeof slack.openIm === 'function' ? await slack.openIm(contact) : contact);",
+      "nth": 1,
+      "kind": "call:openIm"
+    },
+    {
+      "file": "outbox.js",
+      "line": "const posted = await slack.postMessage({ channel, threadTs: thread || undefined, text, clientMsgId: clientId, as });",
+      "nth": 0,
+      "kind": "call:postMessage"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (typeof slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (typeof slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');",
+      "nth": 1,
+      "kind": "message"
+    },
+    {
+      "file": "outbox.js",
+      "line": "const uploaded = await slack.uploadFile({ channel: conversation, threadTs: thread || undefined, file, as });",
+      "nth": 0,
+      "kind": "call:uploadFile"
+    },
+    {
+      "file": "outbox.js",
       "line": "if (typeof deps.slack?.openIm !== 'function') throw new Error('slack.openIm required');",
       "nth": 0,
       "kind": "binding"
@@ -602,27 +655,9 @@
     },
     {
       "file": "outbox.js",
-      "line": "if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
+      "line": "const sent = await sendModule.send(operationsOf(deps.slack), {",
       "nth": 0,
       "kind": "binding"
-    },
-    {
-      "file": "outbox.js",
-      "line": "if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
-      "nth": 1,
-      "kind": "message"
-    },
-    {
-      "file": "outbox.js",
-      "line": "const posted = await deps.slack.postMessage({",
-      "nth": 0,
-      "kind": "call:postMessage"
-    },
-    {
-      "file": "outbox.js",
-      "line": "const uploaded = await deps.slack.uploadFile({ channel, threadTs, file, as });",
-      "nth": 0,
-      "kind": "call:uploadFile"
     },
     {
       "file": "payment-panel.js",

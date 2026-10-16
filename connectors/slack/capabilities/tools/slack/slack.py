@@ -7,6 +7,7 @@ Dry runs do not post and do not establish permission or grant coverage.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,19 @@ REAL_STOOLS = STOOLS_ROOT / "stools.py"
 GRANTS_FILE = VAULT_ROOT / ".rbtv/config/slack/write-grants.yaml"
 
 WRITE_VERBS = {"send", "upload", "react", "canvas"}
+# A contact: a user id or a direct conversation. A message to one goes through the `message` port command
+# (connectors/messaging), which checks the permission and picks the connector; slack send keeps channel
+# posts and Slack's own features (connector architecture, phase 2).
+CONTACT_RE = re.compile(r"^(?:[UW][A-Z0-9]+|D[A-Z0-9]+)$")
+MESSAGE_NOTE = "A message to a contact (a user id or a direct conversation) goes through message send --to ADDRESS --via slack TEXT, not slack send."
+
+
+def die_contact(channel):
+    kind = "a direct conversation" if channel.startswith("D") else "a user"
+    print("slack: send refused: a message to a contact goes through message", file=sys.stderr)
+    print(f"  why: {channel} is {kind}; slack send keeps channel posts and Slack's own features only", file=sys.stderr)
+    print(f"  fix: message send --to {channel} --via slack \"Oi\"", file=sys.stderr)
+    sys.exit(2)
 
 
 def die_refused(workspace, verb):
@@ -145,6 +159,8 @@ def main(argv):
 
     verb, rest = argv[0], argv[1:]
     if load_write_args().show_write_help(verb, rest, command_prog(verb)):
+        if verb == "send":
+            print(f"\n{MESSAGE_NOTE}")
         return
 
     workspaces, error = load_workspaces()
@@ -153,6 +169,8 @@ def main(argv):
         return
 
     args = load_write_args().parse_write_context(verb, rest, workspaces, command_prog(verb))
+    if verb == "send" and CONTACT_RE.match((args.channel or "").strip()):
+        die_contact(args.channel.strip())
     if args.dry_run:
         exec_real(argv)
         return
