@@ -1,0 +1,800 @@
+[
+  {
+    "file": "albert-evidence.js",
+    "line": "return !meta.source || ['slack', 'used-text'].includes(meta.source);",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "albert-evidence.js",
+    "line": "thread: row.root_ts && /^\\d+\\.\\d+$/.test(row.root_ts) ? `https://app.slack.com/archives/${row.channel}/p${row.root_ts.replace('.', '')}` : null }));",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "albert-evidence.js",
+    "line": "const key = conversationKey(config.slack.team, channelId, 'board');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "albert-evidence.js",
+    "line": "key, agent, workspace: config.slack.team, channel: channelId, rootTs: 'board', activated: false,",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "cli.js",
+    "line": "// deps.slack stubs Slack.",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "cli.js",
+    "line": "if (config.dmAgent === slug) return { channel: config.slack.ownerUserId, imUser: config.slack.ownerUserId };",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "cli.js",
+    "line": "if (config.dmAgent === slug) return { channel: config.slack.ownerUserId, imUser: config.slack.ownerUserId };",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "cli.js",
+    "line": "AND root_ts IS NOT NULL AND root_ts!='board'`).all(ctx.slug, ctx.config.slack.team, opts.thread, opts.thread);",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "cli.js",
+    "line": "workspace: ctx.config.slack.team,",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "cli.js",
+    "line": "const thread = match ? `[thread](https://app.slack.com/archives/${match[1]}/p${match[2].replace('.', '')})` : null;",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "cli.js",
+    "line": "store.beginProactive({ id: randomUUID(), agent: slug, workspace: config.slack.team, channel: target.channel, payload });",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "// slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "config.js",
+    "line": "const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments'];",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "const value = reqString(obj, key, `slack.${key}`);",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "if (!ENV_NAME.test(value)) throw new Error(`slack.${key} must be an environment variable name`);",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "if (typeof value !== 'string' || !value.trim()) throw new Error('slack.stoolsWorkspace required');",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "throw new Error('slack.stoolsWorkspace must be a stools workspace name, not a path');",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "rejectUnknown(raw.slack, SLACK_KEYS, 'slack');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "rejectUnknown(raw.slack, SLACK_KEYS, 'slack');",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'team', 'slack.team');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'team', 'slack.team');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'botUserId', 'slack.botUserId');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'botUserId', 'slack.botUserId');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'ownerUserId', 'slack.ownerUserId');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqString(raw.slack, 'ownerUserId', 'slack.ownerUserId');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "config.js",
+    "line": "reqEnvName(raw.slack, 'appTokenEnv');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqEnvName(raw.slack, 'botTokenEnv');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqEnvName(raw.slack, 'ownerTokenEnv');",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "reqWorkspaceName(raw.slack.stoolsWorkspace);",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "config.js",
+    "line": "const name = config.slack[`${key}TokenEnv`];",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "// deps.slack stubs Slack. deps.afterChannel() runs after the route write and before the bot joins.",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "connect.js",
+    "line": "const { Slack } = require('./slack.js');",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "connect.js",
+    "line": "if (deps.slack) return deps.slack;",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "if (deps.slack) return deps.slack;",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "stoolsWorkspace: config.slack.stoolsWorkspace,",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "async function ensureChannel(ctx, slack, deps) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "const created = await slack.createChannel(opts['channel-name']);",
+    "nth": 0,
+    "kind": "call:createChannel"
+  },
+  {
+    "file": "connect.js",
+    "line": "const channelId = opts.dm ? config.slack.ownerUserId : channel.id;",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "const key = conversationKey(config.slack.team, channelId, BOARD_ROOT);",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "key, agent: opts.agent, workspace: config.slack.team, channel: channelId, rootTs: BOARD_ROOT, activated: false,",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "const slack = slackClient(config, deps);",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "channel = await ensureChannel({ opts, routes, workspace }, slack, deps);",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "await slack.joinChannel(channel.id);",
+    "nth": 0,
+    "kind": "call:joinChannel"
+  },
+  {
+    "file": "connect.js",
+    "line": "await slack.inviteUser(channel.id, config.slack.ownerUserId);",
+    "nth": 0,
+    "kind": "call:inviteUser"
+  },
+  {
+    "file": "connect.js",
+    "line": "await slack.inviteUser(channel.id, config.slack.ownerUserId);",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "const channelId = opts.dm ? config.slack.ownerUserId : channel.id;",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "connect.js",
+    "line": "const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "connect.js",
+    "line": "const slack = slackClient(config, deps);",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "connect.js",
+    "line": "await slack.archiveChannel(id);",
+    "nth": 0,
+    "kind": "call:archiveChannel"
+  },
+  {
+    "file": "daemon.js",
+    "line": "const { Slack } = require('./slack.js');",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "daemon.js",
+    "line": "const fake = process.env.IGNITE_DAEMON_FAKE === '1' && !opts.slack;",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "let slack = opts.slack || null;",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "let slack = opts.slack || null;",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack,",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack,",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "for (const name of ['appTokenEnv', 'botTokenEnv', 'ownerTokenEnv']) delete env[config.slack[name]];",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "const legend = createLegend({ slack: () => slack, log });",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "const legend = createLegend({ slack: () => slack, log });",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 2,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 3,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 4,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack: () => slack,",
+    "nth": 5,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "if (!slack && !fake) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "slack = new Slack({",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "stoolsWorkspace: config.slack.stoolsWorkspace,",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "daemon.js",
+    "line": "log: (level, message) => log({ event: 'slack', level, message }),",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "daemon.js",
+    "line": "await slack.auth();",
+    "nth": 0,
+    "kind": "call:auth"
+  },
+  {
+    "file": "daemon.js",
+    "line": "ctx.slack = slack;",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "ctx.slack = slack;",
+    "nth": 1,
+    "kind": "binding"
+  },
+  {
+    "file": "daemon.js",
+    "line": "socket = slack;",
+    "nth": 0,
+    "kind": "call:connect,stop"
+  },
+  {
+    "file": "ingress.js",
+    "line": "const ownerUserId = config?.slack?.ownerUserId;",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "ingress.js",
+    "line": "if (!ownerUserId) throw new Error('config.slack.ownerUserId required');",
+    "nth": 0,
+    "kind": "message"
+  },
+  {
+    "file": "ingress.js",
+    "line": "const team = event.team || config.slack.team;",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "ingress.js",
+    "line": "async function activateThread(store, slack, route) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "ingress.js",
+    "line": "if (typeof slack?.threadHistory !== 'function') throw new Error('slack.threadHistory required');",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "ingress.js",
+    "line": "if (typeof slack?.threadHistory !== 'function') throw new Error('slack.threadHistory required');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "ingress.js",
+    "line": "const history = await slack.threadHistory(route.channel, route.rootTs);",
+    "nth": 0,
+    "kind": "call:threadHistory"
+  },
+  {
+    "file": "ingress.js",
+    "line": "return activateThread(store, ctx.slack, route);",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "legend.js",
+    "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "legend.js",
+    "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "legend.js",
+    "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+    "nth": 1,
+    "kind": "comment"
+  },
+  {
+    "file": "legend.js",
+    "line": "const { legendView } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "legend.js",
+    "line": "const { legendView } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');",
+    "nth": 1,
+    "kind": "path"
+  },
+  {
+    "file": "legend.js",
+    "line": "function createLegend({ slack, log = () => {} } = {}) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "legend.js",
+    "line": "await slack().openView(payload.trigger_id, legendView(MEANING));",
+    "nth": 0,
+    "kind": "call:openView"
+  },
+  {
+    "file": "live-status.js",
+    "line": "// shows them in its medium (Slack: connectors/slack/capabilities/tools/slack/lib/live-status.js). This",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "live-status.js",
+    "line": "// shows them in its medium (Slack: connectors/slack/capabilities/tools/slack/lib/live-status.js). This",
+    "nth": 1,
+    "kind": "comment"
+  },
+  {
+    "file": "outbox.js",
+    "line": "//   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "outbox.js",
+    "line": "//   A user id target (payload.imUser, or a DM agent's board channel) is opened with slack.openIm and",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (typeof deps.slack?.openIm !== 'function') throw new Error('slack.openIm required');",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (typeof deps.slack?.openIm !== 'function') throw new Error('slack.openIm required');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "outbox.js",
+    "line": "channel = await deps.slack.openIm(channel);",
+    "nth": 0,
+    "kind": "call:openIm"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "outbox.js",
+    "line": "if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "outbox.js",
+    "line": "const posted = await deps.slack.postMessage({",
+    "nth": 0,
+    "kind": "call:postMessage"
+  },
+  {
+    "file": "outbox.js",
+    "line": "const uploaded = await deps.slack.uploadFile({ channel, threadTs, file, as });",
+    "nth": 0,
+    "kind": "call:uploadFile"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "// is checked against slack.ownerUserId and slack.team, and anyone else is refused with nothing changed.",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "// is checked against slack.ownerUserId and slack.team, and anyone else is refused with nothing changed.",
+    "nth": 1,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "//   gate() → the Gate, or null when the config has no payments section; slack() → the Slack client;",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "//   ack and handle are slack.js connect's interactions. ack answers at once and touches neither the ledger nor",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {} } = {}) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "return Boolean(user && user === cfg.slack.ownerUserId && team && team === cfg.slack.team);",
+    "nth": 0,
+    "kind": "config"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "return Boolean(user && user === cfg.slack.ownerUserId && team && team === cfg.slack.team);",
+    "nth": 1,
+    "kind": "config"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "await slack().openView(payload.trigger_id, g.pinSet() ? panelView(g) : setPinView({ next: 'panel' }));",
+    "nth": 0,
+    "kind": "call:openView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
+    "nth": 0,
+    "kind": "call:pushView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
+    "nth": 1,
+    "kind": "call:openView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });",
+    "nth": 0,
+    "kind": "call:postEphemeral"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "try { await slack().updateView(root, panelView(g)); } catch (error) { note({ action: 'refresh-failed', message: error.message }); }",
+    "nth": 0,
+    "kind": "call:updateView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "await slack().updateView(viewId, view ? view() : doneView(text));",
+    "nth": 0,
+    "kind": "call:updateView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "await slack().updateView(viewId, doneView(`${text} The panel could not refresh; reopen /payments to see it.`));",
+    "nth": 0,
+    "kind": "call:updateView"
+  },
+  {
+    "file": "payment-panel.js",
+    "line": "await slack().updateView(view.id, doneView(`Ignite could not do this: ${esc(error.message)}. Nothing changed; try again.`));",
+    "nth": 0,
+    "kind": "call:updateView"
+  },
+  {
+    "file": "payment-runner.js",
+    "line": "// createPaymentRunner({ gate, slack, store, providers, run?, env?, cwd, log?, kick?, now? }) → { step(), stop() }",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-runner.js",
+    "line": "//   gate — the Gate. slack() → the Slack client, or null. store(slug) → that agent's open Store, or null.",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "payment-runner.js",
+    "line": "function createPaymentRunner({ gate, slack, store, providers, run = null, env = () => process.env, cwd, log = () => {}, kick = () => {}, now = Date.now } = {}) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "payment-runner.js",
+    "line": "const client = slack();",
+    "nth": 0,
+    "kind": "call:postBlocks"
+  },
+  {
+    "file": "payment-runner.js",
+    "line": "const client = slack();",
+    "nth": 1,
+    "kind": "call:updateMessage"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) → { step(), stop() }",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "//   stores() → [{ slug, store }], the agents' open stores. slack() → the Slack client, or null while",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "const { liveStatus } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');",
+    "nth": 0,
+    "kind": "path"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "const { liveStatus } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');",
+    "nth": 1,
+    "kind": "path"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace(), callMs = CALL_MS } = {}) {",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "const client = typeof slack === 'function' ? slack() : null;",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "status-ticker.js",
+    "line": "const client = typeof slack === 'function' ? slack() : null;",
+    "nth": 1,
+    "kind": "call:addReaction,removeReaction"
+  },
+  {
+    "file": "turn-loop.js",
+    "line": "//   deps: { home, store, slack?, audio?, turnCommand?, castEnv?, historyWindow?, now?, log? }",
+    "nth": 0,
+    "kind": "comment"
+  },
+  {
+    "file": "turn-loop.js",
+    "line": "if (typeof deps.slack?.downloadFile !== 'function') throw fail('slack.downloadFile required', 'work');",
+    "nth": 0,
+    "kind": "binding"
+  },
+  {
+    "file": "turn-loop.js",
+    "line": "if (typeof deps.slack?.downloadFile !== 'function') throw fail('slack.downloadFile required', 'work');",
+    "nth": 1,
+    "kind": "message"
+  },
+  {
+    "file": "turn-loop.js",
+    "line": "downloaded = await deps.slack.downloadFile({",
+    "nth": 0,
+    "kind": "call:downloadFile"
+  }
+]

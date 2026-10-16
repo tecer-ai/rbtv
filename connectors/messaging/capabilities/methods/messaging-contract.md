@@ -2,7 +2,7 @@
 
 The messaging contract states what Ignite performs through a messaging [connector](../../../../core/rbtv/capabilities/glossary/connector.md) today, as the [operations](../../../../core/rbtv/capabilities/glossary/operation.md) of the messaging [port](../../../../core/rbtv/capabilities/glossary/port.md), and the shape in which inbound events reach Ignite. It is written from the calls Ignite makes on its Slack client (`core/ignite/capabilities/tools/ignite/slack.js`), not from what Slack offers: every call is tagged `message` (an operation of this port), `panel` (the payment panel, operation `approval.secure`) or `ignite-internal` (the client's own session, no operation), and a part only some services have is marked optional. A connector's [adapter](../../../../core/rbtv/capabilities/glossary/adapter.md) meets this contract; `message`, the port command, will call the same operations (phase 2 of the connector architecture). Read it when writing a messaging adapter, when changing a call Ignite makes on its Slack client, or when adding a connector whose record `provides` a `message.*` or `group.*` operation.
 
-`core/ignite/capabilities/tools/ignite/test_messaging_contract.js` keeps this page true: it reads the Slack class methods, finds every place a production file under `core/ignite/` reaches one through any name that holds the client, and fails on a call site this page does not tag or a row here that no call site backs. It fails closed on the word `slack`: every use of it in those files must be one of the forms the Checks section lists, or the test names the line as an unsupported client use. It also checks that the Slash command and Buttons and forms sections name every path the panel's files read from a payload, nested ones included (`view.callback_id`, `actions[0].action_id`), directly or through a name assigned from the payload, and the fixtures beside this page against the inbound event table.
+`core/ignite/capabilities/tools/ignite/test_messaging_contract.js` keeps this page true, and parses no JavaScript: every occurrence of the word `slack` in a production file under `core/ignite/` is listed in `messaging-contract/slack-uses.json` with its kind, every `call:` entry there has a tagged row in the call-site table and every row has a `call:` entry, every occurrence of the word `payload` in the panel's files is listed in `messaging-contract/payload-uses.json` with the field paths it reads, each named in the Slash command or Buttons and forms table, and the fixtures beside this page fit the inbound event table. A new occurrence fails until an author lists it with its kind (the Checks section).
 
 ## Words
 
@@ -25,7 +25,7 @@ Methods of the Slack class that Ignite never calls are not part of the contract:
 
 ## Call sites
 
-One row per production file under `core/ignite/` and Slack class method it reaches, through whatever name holds the client (`slack`, `deps.slack`, `slack()`, a name assigned from one, `client[method]`, a method taken out by destructuring); the file is written relative to `core/ignite/capabilities/tools/ignite/`. The test program reads this table; keep its first three cells in this form.
+One row per production file under `core/ignite/` and Slack class method it reaches, through whatever name holds the client; each row is backed by a `call:` entry of `messaging-contract/slack-uses.json` (the Checks section), and the file is written relative to `core/ignite/capabilities/tools/ignite/`. The test program reads this table; keep its first three cells in this form.
 
 | File | Slack call | Tag | Operation and note |
 |---|---|---|---|
@@ -76,7 +76,7 @@ The listener treats `connector`, `account`, `from` and `group` as the facts admi
 
 ## Slash command
 
-An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments` and `/legend` are then unreachable there. The test program reads the Field column of this table and of the next section's: every path the panel's files read from a payload must appear in one of them as written, whether read directly (`payload.trigger_id` is `trigger_id`) or through a name assigned from the payload (`const view = payload.view` then `view.callback_id` is `view.callback_id`; `payload.actions?.[0]` then `act.action_id` is `actions[0].action_id`). A computed index ends a path: `view.state.values[blockId]` is `view.state.values`.
+An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments` and `/legend` are then unreachable there. The test program reads the Field column of this table and of the next section's: every path `messaging-contract/payload-uses.json` lists as read by the panel's files must appear in one of them as written (`trigger_id`, `view.callback_id`, `actions[0].action_id`; a computed index ends a path: `view.state.values[blockId]` is `view.state.values`).
 
 | Field | Presence | Read for |
 |---|---|---|
@@ -127,20 +127,21 @@ Slack's `capabilities/tools/slack/lib/live-status.js` is the one piece of its ad
 
 ## Checks
 
-Run `node core/ignite/capabilities/tools/ignite/test_messaging_contract.js`: it exits 0 and prints the call sites it found. When Ignite gains a call on its Slack client, add its row to the call-site table with a tag; when a call is removed, remove the row. When the panel reads a new payload field path, add it to the Slash command or Buttons and forms table. When the inbound shape changes, change the table and the two fixtures together, and the adapters that deliver it. A connector's adapter passes the shape check of Building a connector.
+Run `node core/ignite/capabilities/tools/ignite/test_messaging_contract.js`: it exits 0 and prints the call sites it found. The program parses no JavaScript. Two lists beside this page, `messaging-contract/slack-uses.json` and `messaging-contract/payload-uses.json`, name every occurrence of one word and what it is; the program finds the occurrences with one regular expression per word and compares them with the list, so a new occurrence fails until an author lists it with its kind, and a listed occurrence whose line is gone fails as stale. An entry is the file (relative to `core/ignite/capabilities/tools/ignite/`), the line's text trimmed, and `nth`, the 0-based occurrence of that text in the file (two words on one line, or two equal lines, are distinct entries).
 
-The test program fails closed on the word `slack`: every occurrence of the identifier in a production file's code, as a property, a variable, a key, a parameter or inside a string, must be a form it understands, or it fails with `unsupported client use <file>:<line>: <the text>`. Write a use of the client in one of these forms:
+`slack-uses.json` lists every occurrence of the word `slack` (whole word; in code, a string or a comment) in every production file under `core/ignite/`: every `.js` file other than `slack.js` and the `test_*.js` programs. Its `kind` is one of:
 
-| Form | Examples |
+| Kind | Meaning |
 |---|---|
-| A call on the client through a holder: bare `slack`, a property (`deps.slack`, `ctx.slack`, `this.slack`) or a getter call (`slack()`), then the method, with any spacing or line break between | `await slack.auth();`, `deps.slack?.openIm`, `slack().openView(…)` |
-| A name assigned from a holder, from `new Slack(` or from a function of the same file that returns a holder; that name is then a holder | `const s = deps.slack;`, `let slack = opts.slack \|\| null;`, `const client = slack();`, `typeof slack === 'function' ? slack() : null`, `const slack = slackClient(config, deps);` |
-| A method taken out of a holder by destructuring, under its own name or renamed | `const { canvasCreate: create } = deps.slack; create({});` |
-| A parameter named `slack`, plain or destructured | `function f(store, slack)`, `(slack) => …`, `createLegend({ slack, log })` |
-| The holder passed to a function of the same file whose parameter at that position is named `slack` | `activateThread(store, ctx.slack, route)` |
-| The key `slack` of an object, shorthand, or with a holder or a getter of one as its value | `{ config, slack, log }`, `slack: () => slack` |
-| A truthiness or `typeof` test, a `return` of a holder, a holder stored under `slack` | `if (deps.slack)`, `!opts.slack`, `return deps.slack;`, `ctx.slack = slack;`, `slack = new Slack({` |
-| A read of the `slack` section of Ignite's config by one of its keys (`SLACK_KEYS` in `config.js`) | `config.slack.team`, `config?.slack?.ownerUserId` |
-| A string that is a module path, a web address, a config key or the message thrown when the client lacks a method | `'./slack.js'`, `https://app.slack.com/…`, `'slack.team'`, `'slack.openIm required'` |
+| `call:<Method>` | The Slack class methods reached from this occurrence: called on this line (`await slack.auth()`), or through the name this line binds the client to (`socket = slack;`, then `socket.connect(…)` below). Several are joined by commas: `call:connect,stop`. Each method must be a method of the `Slack` class and have a row in the call-site table for this file, and every row must have at least one such entry |
+| `config` | The `slack` section of Ignite's config: a read by a key (`config.slack.team`, `raw.slack`) or the section's name as a key (`['slack', 'tools'`) |
+| `path` | A module path or a web address (`./slack.js`, `app.slack.com`) |
+| `message` | Text in a thrown or logged message, a label or a log field (`'slack.openIm required'`, `event: 'slack'`) |
+| `binding` | The client itself with no call on this line: assigned, tested, returned, or handed to a name, parameter or key (`const s = deps.slack;`, `if (deps.slack)`, `function f(store, slack)`, `{ slack, log }`) |
+| `comment` | The word in a comment |
 
-Not understood, so refused: destructuring the client itself (`const { slack: client } = deps`; write `const client = deps.slack;`), a computed key (`deps['slack']`; write `deps.slack`), a holder passed to a parameter of another name (name the parameter `slack`), and a `slack` property followed by a name that is neither a Slack method nor a config key. A use of the word that is not the client and fits no form above (a config section's name, a log field, a label) is added to the program's `NON_CLIENT_USES` list by exact text with its reason; the program names the list in its message.
+`payload-uses.json` lists every occurrence of the word `payload` in the files the call-site table tags `panel`. Its `reads` is the list of payload field paths the line reads, directly (`payload.trigger_id` reads `trigger_id`) or through the name the line binds (`const view = payload.view || {}` reads what its function then reads through `view`: `view.callback_id`, `view.state.values`); a line that reads no field has `[]`. Every path must appear in the Field column of the Slash command or Buttons and forms table as written, and `trigger_id`, `actions[0].action_id`, `view.callback_id` and `view.state.values` must each be read somewhere.
+
+When a production file gains or loses a use of either word, run `node core/ignite/capabilities/tools/ignite/test_messaging_contract.js --write-fixture`: it rewrites both lists from the files, keeps every known entry's kind or reads, drops stale entries and writes `"?"` on each new one; fill each `"?"` in, since the test refuses it. When Ignite gains a call on its Slack client, add its row to the call-site table with a tag; when a call is removed, remove the row. When the panel reads a new payload field path, add it to the Slash command or Buttons and forms table. When the inbound shape changes, change the table and the two `inbound-*.json` fixtures together, and the adapters that deliver it. A connector's adapter passes the shape check of Building a connector.
+
+A kind and a reads list are the author's statement, checked in review: the program proves that every occurrence is listed, not that its kind is right. The case to look for is a call reached through a name that holds no `slack`, bound on a line marked `binding`.
