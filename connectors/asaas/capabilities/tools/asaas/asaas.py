@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """asaas — an Asaas bank account from one command, for agents.
 
-Reads: balance, statement, Pix key lookup and Pix QR code decode, and saves a
-payment receipt as PDF.
-Pays only through Ignite's payment gate: `pay pix`, `pay qr`, `pay bill` and
-`pay recharge` resolve the recipient, record a request with `ignite payment
-request`, and print the gate's answer. They never call a paying endpoint. The
-waking service runs the rest with the request on stdin: `pay resolve` reads the
-recipient again before the owner sees it (`pay resolve draft` does the same for
-the `pay` port command before any request exists), and `pay execute` alone calls
-a paying endpoint (POST /transfers, /bill, /pix/qrCodes/pay, /mobilePhoneRecharges). A
+Reads: balance, statement, Pix key lookup and Pix QR code decode, this agent's
+payment requests, and a payment receipt as PDF. Withdraws a pending request and
+cancels a sent Pix or bill.
+An agent pays with `pay pix|qr|bill|recharge --from asaas`. `pay pix`, `pay qr`,
+`pay bill` and `pay recharge` refuse and name that command. The waking service
+runs the rest with the request on stdin: `pay resolve` reads the recipient again
+before the owner sees it (`pay resolve draft` does the same for the `pay` port
+command before any request exists), and `pay execute` alone calls a paying
+endpoint (POST /transfers, /bill, /pix/qrCodes/pay, /mobilePhoneRecharges). A
 transfer and a bill carry the request id as externalReference; a QR payment and
 a top-up take none, so Ignite records the operation id `pay execute` prints.
 Asaas then asks Ignite's withdrawal validation, which approves only that request
@@ -29,7 +29,6 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,10 +48,12 @@ RECEIPT_SITE = os.environ.get(RECEIPT_URL_ENV, "https://www.asaas.com").rstrip("
 RECEIPT_PDF_RE = re.compile(r'href="(/transactionReceipt/pdf/[0-9]+)"')
 REQUEST_ID_RE = re.compile(r"P-\d+\Z")
 IGNITE_ENV = "ASAAS_IGNITE"            # test hook: path of Ignite's cli.js, run with node, in place of `ignite`
-GATE_WAIT_ENV = "ASAAS_GATE_WAIT"      # seconds `pay` waits for Ignite to send an approved payment (default 30)
 CONNECTOR = "asaas"
-NOTE_MAX = 140
-QR_MAX = 2000
+RETIRED_VERBS = ("pix", "qr", "bill", "recharge")
+MOVED_WHY = ("paying goes through the payments port command, which holds the gate call for every bank; "
+             "asaas keeps reading, cancelling, receipts and the waking service's verbs")
+PAY_SENTENCE = ("Ignite's waking service's verbs: resolve, execute, status (request on stdin). "
+                "An agent pays with pay pix|qr|bill|recharge --from asaas …")
 UNKNOWN_FIX = f"{PROG} payments lists this agent's request ids; an id it does not list is another agent's or does not exist"
 TRANSFER_FINAL = {"DONE": True, "CANCELLED": False, "FAILED": False}
 BILL_FINAL = {"PAID": True, "CANCELLED": False, "FAILED": False, "REFUNDED": False}
@@ -253,7 +254,7 @@ def cmd_pix_decode(args):
                "receiver_name": receiver.get("name"), "receiver_document": receiver.get("cpfCnpj"),
                "can_be_paid": data.get("canBePaid"), "cannot_be_paid_reason": data.get("cannotBePaidReason"),
                "can_change_value": data.get("canBePaidWithDifferentValue")}
-    payable = ("yes: asaas pay qr pays it through Ignite's payment gate" if payload["can_be_paid"]
+    payable = ("yes: pay qr --from asaas pays it through Ignite's payment gate" if payload["can_be_paid"]
                else f"no: {payload['cannot_be_paid_reason']}")
     lines = [f"Receiver  {payload['receiver_name']}  {payload['receiver_document'] or ''}".rstrip(),
              f"Amount    {brl(payload['total_value'] if payload['total_value'] is not None else payload['value'])}",
@@ -262,35 +263,6 @@ def cmd_pix_decode(args):
 
 
 # ───────────────────────────────────────────────────────────── payment gate
-
-def amount_cents(text):
-    m = re.match(r"(\d{1,9})(?:[.,](\d{1,2}))?\Z", str(text).strip())
-    if not m or int(m.group(1) + (m.group(2) or "0").ljust(2, "0")) == 0:
-        raise argparse.ArgumentTypeError(f"{text!r} is not an amount in reais, like 99 or 99,90")
-    return int(m.group(1)) * 100 + int((m.group(2) or "0").ljust(2, "0"))
-
-
-def note_text(text):
-    value = str(text).strip()
-    if not value or len(value) > NOTE_MAX or "\n" in value:
-        raise argparse.ArgumentTypeError(f"the note must be one line of 1 to {NOTE_MAX} characters")
-    return value
-
-
-def bill_line(text):
-    digits = re.sub(r"\D", "", str(text))
-    if len(digits) not in (47, 48):
-        raise argparse.ArgumentTypeError("the bill's digitable line (linha digitável) has 47 or 48 digits; "
-                                         "a 44-digit barcode number (código de barras) is not accepted: copy the digitable line printed above it")
-    return digits
-
-
-def qr_payload(text):
-    value = str(text).strip()
-    if not value.startswith("000201") or len(value) > QR_MAX or "\n" in value:
-        raise argparse.ArgumentTypeError("a Pix QR code's copy-and-paste text is one line that starts with 000201")
-    return value
-
 
 def phone_number(text):
     digits = re.sub(r"\D", "", str(text))
@@ -318,8 +290,8 @@ def gate(*args, stdin=None, fix=None):
     else:
         found = shutil.which("ignite")
         if not found:
-            raise Refusal("the ignite command is not on PATH", "asaas pays only through Ignite's payment gate",
-                          "run asaas pay inside an Ignite agent's turn")
+            raise Refusal("the ignite command is not on PATH", "payment requests are read through Ignite's payment gate",
+                          "run this command from an Ignite agent's turn")
         command = [found]
     try:
         p = subprocess.run([*command, "--json", "payment", *args], input=stdin, capture_output=True,
@@ -336,22 +308,6 @@ def gate(*args, stdin=None, fix=None):
         raise Refusal("Ignite's payment gate answered something that is not JSON", p.stdout[:200], "tell the owner")
 
 
-def in_turn():
-    if not os.environ.get("IGNITE_CONVERSATION"):
-        raise Refusal("asaas pay runs inside an Ignite turn", "IGNITE_CONVERSATION is not set, so no conversation can be woken with the outcome",
-                      "pay from an agent's turn; a person pays in the Asaas app")
-
-
-def ask_gate(request):
-    row = gate("request", "--provider", CONNECTOR, "--request", "-", stdin=json.dumps(request))
-    wait = float(os.environ.get(GATE_WAIT_ENV, "30") or 0)
-    deadline = time.monotonic() + wait
-    while row.get("state") == "approved" and time.monotonic() < deadline:
-        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
-        row = gate("show", row["id"])
-    return row
-
-
 def state_line(row):
     state, reason = row.get("state"), row.get("reason") or ""
     if state == "sent":
@@ -359,47 +315,6 @@ def state_line(row):
     if state == "approved":
         return "approved: Ignite is sending it"
     return f"{state}: {reason}" if reason else state
-
-
-def request_line(row):
-    rid, state = row.get("id"), row.get("state")
-    if state == "pending":
-        return f"{rid}, sent to the owner for approval"
-    if state in ("approved", "uncertain"):
-        return f"{rid}, the outcome arrives in this conversation"
-    if state == "sent":
-        receipt = row.get("receipt_url")
-        return f"{rid}, Asaas id {field(row, 'connector_id', 'provider_id')}" + (f", receipt {receipt}" if receipt else "")
-    return rid
-
-
-def report(args, row):
-    r = row.get("recipient") or {}
-    amount = brl_cents(row.get("amount_cents")) + (f" + fee {brl_cents(row['fee_cents'])}" if row.get("fee_cents") else "")
-    lines = [f"Recipient   {' · '.join(x for x in (r.get('name'), r.get('document'), r.get('bank')) if x) or r.get('key')}",
-             f"Amount      {amount}",
-             f"State       {state_line(row)}",
-             f"Request     {request_line(row)}"]
-    if row.get("state") == "pending":
-        lines.append(f"Next        end this turn waiting_workers: Ignite wakes this conversation with the owner's decision; "
-                     f"{PROG} payment {row.get('id')} shows it meanwhile")
-    elif row.get("state") == "approved":
-        lines.append(f"Next        {PROG} payment {row.get('id')} shows when it is sent")
-    elif row.get("state") == "uncertain":
-        lines.append(f"Next        do not ask again: Ignite reads it at Asaas and wakes this conversation with the outcome; "
-                     f"{PROG} statement shows whether it left")
-    out(args, row, lines)
-    return EXIT_FAILED if row.get("state") in ("refused", "failed", "cancelled") else EXIT_OK
-
-
-def cmd_pay_pix(args):
-    in_turn()
-    if args.key.strip().startswith("000201"):
-        raise Refusal("this is a Pix QR code (copy and paste), not a Pix key", "a QR code is paid as a QR code",
-                      f"{PROG} pay qr PAYLOAD --note TEXT")
-    recipient = pix_owner(args.key, args.type)
-    return report(args, ask_gate({"method": "pix", "recipient": recipient, "amount_cents": args.amount,
-                                  "fee_cents": 0, "note": args.note, "details": {}}))
 
 
 def qr_decode(payload):
@@ -414,20 +329,6 @@ def qr_decode(payload):
     recipient = {"name": receiver.get("name"), "key": payload, "key_type": "QR",
                  "document": receiver.get("cpfCnpj"), "bank": receiver.get("ispbName")}
     return recipient, fixed, bool(data.get("canBePaidWithDifferentValue"))
-
-
-def cmd_pay_qr(args):
-    in_turn()
-    recipient, fixed, changeable = qr_decode(args.payload)
-    amount = args.amount
-    if fixed is None and amount is None:
-        raise Refusal("this QR code carries no amount", "the payer chooses it",
-                      f"{PROG} pay qr PAYLOAD --amount 35,00 --note TEXT")
-    if fixed is not None and amount is not None and amount != fixed and not changeable:
-        raise Refusal(f"this QR code charges {brl_cents(fixed)}, not {brl_cents(amount)}", "its amount cannot be changed",
-                      f"{PROG} pay qr PAYLOAD --note TEXT   (without --amount)")
-    return report(args, ask_gate({"method": "qr", "recipient": recipient, "amount_cents": amount or fixed,
-                                  "fee_cents": 0, "note": args.note, "details": {}}))
 
 
 def bill_simulation(line):
@@ -445,29 +346,11 @@ def bill_simulation(line):
     return recipient, round(value * 100), round((sim.get("fee") or 0) * 100), details
 
 
-def cmd_pay_bill(args):
-    in_turn()
-    recipient, value, fee, details = bill_simulation(args.line)
-    if not args.json:
-        due = f", due {details['due_date']}" if details.get("due_date") else ""
-        print(f"Simulated   bill {brl_cents(value)}, fee {brl_cents(fee)}{due}: {brl_cents(value + fee)} counts toward the limits",
-              flush=True)
-    return report(args, ask_gate({"method": "bill", "recipient": recipient, "amount_cents": value,
-                                  "fee_cents": fee, "note": args.note, "details": details}))
-
-
-def cmd_pay_recharge(args):
-    in_turn()
-    recipient = {"name": None, "key": args.phone, "key_type": "PHONE", "document": None, "bank": None}
-    return report(args, ask_gate({"method": "recharge", "recipient": recipient, "amount_cents": args.amount,
-                                  "fee_cents": 0, "note": None, "details": {}}))
-
-
 def stdin_request(rid):
     try:
         req = json.loads(sys.stdin.read())
     except json.JSONDecodeError as e:
-        raise Refusal("no request on stdin", str(e), "Ignite's waking service runs this command; an agent pays with asaas pay")
+        raise Refusal("no request on stdin", str(e), "Ignite's waking service runs this command; an agent pays with pay")
     if not isinstance(req, dict) or req.get("id") != rid or field(req, "connector", "provider") != CONNECTOR:
         raise Refusal(f"stdin is not the request {rid}", "the id or the connector differs", "Ignite's waking service runs this command")
     return req
@@ -676,15 +559,112 @@ def cmd_cancel(args):
                   f"{PROG} payment {args.id}")
 
 
+# ───────────────────────────────────────────────────────────── retired paying verbs
+
+def quote_token(value):
+    if value and not any(c in value for c in " \t\"'\\") and not value.startswith("-"):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def quote_note(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def take_retired(rest):
+    opts, pos = {}, []
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok in ("--json", "-h", "--help"):
+            i += 1
+            continue
+        name, inline = tok, None
+        if tok.startswith("--") and "=" in tok:
+            name, inline = tok.split("=", 1)
+        if name in ("--note", "--amount", "--type"):
+            if inline is None:
+                i += 1
+                if i >= len(rest):
+                    break
+                inline = rest[i]
+            opts[name] = inline
+            i += 1
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        pos.append(tok)
+        i += 1
+    return opts, pos
+
+
+def moved_fix(verb, rest):
+    opts, pos = take_retired(rest)
+    parts = [f"pay {verb}", "--from asaas"]
+    if verb == "pix":
+        if pos:
+            parts.append("--to " + quote_token(pos[0]))
+        if len(pos) > 1:
+            parts.append("--amount " + quote_token(pos[1]))
+        if "--note" in opts:
+            parts.append("--note " + quote_note(opts["--note"]))
+        if "--type" in opts:
+            parts.append("--type " + quote_token(opts["--type"]))
+    elif verb == "qr":
+        if pos:
+            parts.append("--code " + quote_token(pos[0]))
+        if "--amount" in opts:
+            parts.append("--amount " + quote_token(opts["--amount"]))
+        if "--note" in opts:
+            parts.append("--note " + quote_note(opts["--note"]))
+    elif verb == "bill":
+        if pos:
+            parts.append("--line " + quote_token(pos[0]))
+        if "--note" in opts:
+            parts.append("--note " + quote_note(opts["--note"]))
+    else:
+        if pos:
+            parts.append("--number " + quote_token(pos[0]))
+        if len(pos) > 1:
+            parts.append("--amount " + quote_token(pos[1]))
+        if "--note" in opts:
+            parts.append("--note " + quote_note(opts["--note"]))
+    return " ".join(parts) + "   (pay -h)"
+
+
+def retired_pay(argv):
+    """Exit 2 when an agent runs a retired paying verb. None when the command is something else."""
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    i = 0
+    while i < len(tokens) and tokens[i] == "--json":
+        i += 1
+    if i >= len(tokens) or tokens[i] != "pay":
+        return None
+    i += 1
+    while i < len(tokens) and tokens[i] == "--json":
+        i += 1
+    if i >= len(tokens) or tokens[i] in ("-h", "--help"):
+        return None
+    verb = tokens[i]
+    if verb not in RETIRED_VERBS:
+        return None
+    fix = moved_fix(verb, tokens[i + 1:])
+    print(f"{PROG}: pay {verb} moved to the pay command", file=sys.stderr)
+    print(f"  why: {MOVED_WHY}", file=sys.stderr)
+    print(f"  fix: {fix}", file=sys.stderr)
+    return EXIT_USAGE
+
+
 # ───────────────────────────────────────────────────────────── parser
 
 def parser():
     p = argparse.ArgumentParser(prog=PROG, description=(
-        "An Asaas bank account for agents. Reads balance, statement and Pix keys, and pays only through "
-        "Ignite's payment gate: the owner's limits or the owner's approval decide, never the agent. "
+        "An Asaas bank account for agents. Reads the balance, the statement and Pix keys, lists and shows "
+        "this agent's payment requests, withdraws a pending one, cancels a sent Pix or bill, and saves a receipt. "
+        "An agent pays with pay pix|qr|bill|recharge --from asaas. "
         f"Key: ${KEY_ENV}, else its line in the installation's .rbtv/config/env/.env."),
-        epilog="Exit codes: 0 success, including a payment that waits for the owner (pending); "
-               "1 refused or failed (stderr says why and the fix); 2 invalid arguments.")
+        epilog="Exit codes: 0 success; 1 refused or failed (stderr says why and the fix); 2 invalid arguments.")
     p.add_argument("--json", action="store_true", help="one JSON object on stdout instead of text")
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
@@ -708,31 +688,9 @@ def parser():
     s.add_argument("payload", help="the QR code's copy-and-paste text")
     s.set_defaults(fn=cmd_pix_decode)
 
-    pay = sub.add_parser("pay", help="pay through Ignite's payment gate (inside an Ignite turn)", description=(
-        "Resolves the recipient, asks Ignite's payment gate, and prints its answer: pending (waits for the owner; "
-        "end the turn waiting_workers and Ignite wakes this conversation with the outcome), sent (approved by the "
-        "owner's limits and sent by Ignite), or refused. Never calls a paying endpoint itself: Ignite's waking "
-        "service sends what the gate approved."))
+    pay = sub.add_parser("pay", help="Ignite's waking service only: resolve, execute, status",
+                         description=PAY_SENTENCE, formatter_class=argparse.RawDescriptionHelpFormatter)
     paysub = pay.add_subparsers(dest="pay_command", required=True, metavar="COMMAND")
-    s = paysub.add_parser("pix", help="Pix to a key: looks up its owner, then asks the gate")
-    s.add_argument("key", help="email, +55 phone, CPF, CNPJ or random key")
-    s.add_argument("amount", type=amount_cents, help="reais, like 99 or 99,90")
-    s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters; the recipient sees it")
-    s.add_argument("--type", choices=PIX_KEY_TYPES, help="needed only when 11 digits could be a CPF or a phone")
-    s.set_defaults(fn=cmd_pay_pix)
-    s = paysub.add_parser("qr", help="a Pix QR code (copy and paste text): decodes it (receiver, amount), then asks the gate")
-    s.add_argument("payload", type=qr_payload, help="the QR code's copy-and-paste text, starting 000201")
-    s.add_argument("--amount", type=amount_cents, help="reais, like 35 or 35,90: needed when the QR code carries no amount")
-    s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters")
-    s.set_defaults(fn=cmd_pay_qr)
-    s = paysub.add_parser("bill", help="a boleto or utility bill: simulates it (amount and fee, shown first), then asks the gate")
-    s.add_argument("line", type=bill_line, help="the bill's digitable line (linha digitável), 47 or 48 digits")
-    s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters")
-    s.set_defaults(fn=cmd_pay_bill)
-    s = paysub.add_parser("recharge", help="a mobile top-up: asks the gate to credit a phone")
-    s.add_argument("phone", type=phone_number, help="the mobile number with its area code, like 11912345678 or \"11 91234-5678\" (quoted when it has spaces; +55 optional)")
-    s.add_argument("amount", type=amount_cents, help="reais, like 20 or 20,00; the operator's top-up values apply")
-    s.set_defaults(fn=cmd_pay_recharge)
     s = paysub.add_parser("resolve", help="Ignite's waking service and the pay command only: read the request's recipient on stdin from Asaas",
                           description="Ignite's waking service and the pay command only. Reads the request ID as JSON on stdin and "
                                       "prints its recipient as Asaas names it (Pix key lookup, QR code decode, bill simulation), with "
@@ -746,7 +704,7 @@ def parser():
                                       "(ignite payment show ID --json) and sends it to Asaas: a transfer or a bill with ID as "
                                       "externalReference, a QR payment or a top-up without one. Prints the Asaas id and status; "
                                       'with --json, {"created": false, "reason"} when Asaas refused it or no call was made. '
-                                      "An agent pays with pay pix, qr, bill or recharge.")
+                                       "An agent pays with pay pix|qr|bill|recharge --from asaas.")
     s.add_argument("id", help="the request id, such as P-0007")
     s.set_defaults(fn=cmd_pay_execute)
     s = paysub.add_parser("status", help="Ignite's waking service only: read the sent request on stdin from Asaas",
@@ -778,6 +736,9 @@ def parser():
 
 
 def main(argv=None):
+    refused = retired_pay(argv)
+    if refused is not None:
+        return refused
     args = parser().parse_args(argv)
     args.json = getattr(args, "json", False)
     try:

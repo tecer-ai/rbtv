@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -215,13 +214,14 @@ def main():
     code, out, err = run(work, server, "pix", "decode", "00020126PAYLOAD")
     check("decode posts the payload", Stub.seen and Stub.seen[0]["body"] == {"payload": "00020126PAYLOAD"}, Stub.seen)
     check("decode prints amount and payable, and the command that pays it", code == 0 and "R$ 99,00" in out
-          and "Payable   yes: asaas pay qr pays it through Ignite's payment gate" in out.splitlines(), out)
+          and "Payable   yes: pay qr --from asaas pays it through Ignite's payment gate" in out.splitlines(), out)
 
     receipt_checks(server, work, R)
 
     code, out, err = run(work, server, "transfer")
     check("an unknown command exits 2", code == 2, err)
 
+    retired_pay_checks(server)
     pay_checks(server, home, work, R)
 
     server.shutdown()
@@ -253,6 +253,83 @@ def receipt_checks(server, work, R):
     check("receipt names the page change when the PDF link is gone", code == 1 and "no PDF link" in err, out + err)
 
 
+MOVED_WHY = ("paying goes through the payments port command, which holds the gate call for every bank; "
+             "asaas keeps reading, cancelling, receipts and the waking service's verbs")
+PAY_SENTENCE = ("Ignite's waking service's verbs: resolve, execute, status (request on stdin). "
+                "An agent pays with pay pix|qr|bill|recharge --from asaas …")
+
+
+def moved(verb, fix):
+    return [f"asaas: pay {verb} moved to the pay command", f"  why: {MOVED_WHY}", f"  fix: {fix}"]
+
+
+def retired_home():
+    home = Path(tempfile.mkdtemp())
+    (home / ".rbtv" / "config" / "env").mkdir(parents=True)
+    (home / ".rbtv" / "config" / "install.json").write_text("{}", encoding="utf-8")
+    (home / ".rbtv" / "config" / "env" / ".env").write_text(f"ASAAS_API_KEY={SENTINEL_KEY}\n", encoding="utf-8")
+    work = home / "work"
+    work.mkdir()
+    return home, work
+
+
+def retired_pay_checks(server):
+    """The four paying verbs refuse. They do not resolve a recipient or record a request."""
+    home, work = retired_home()
+    spec_fix = 'pay pix --from asaas --to pia@example.com --amount 18,00 --note "Aula"   (pay -h)'
+    Stub.seen.clear()
+    code, out, err = run(work, server, "pay", "pix", "pia@example.com", "18,00", "--note", "Aula")
+    check("asaas pay pix pia@example.com 18,00 --note Aula refuses with the spec's three lines",
+          code == 2 and out == "" and err.splitlines() == moved("pix", spec_fix) and not Stub.seen,
+          f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "--json", "pay", "pix", "pia@example.com", "18,00", "--note", "Aula")
+    check("pay pix --json refuses with the same three lines and no stdout",
+          code == 2 and out == "" and err.splitlines() == moved("pix", spec_fix), f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "qr", "00020126580014br.gov.bcb.pix", "--amount", "35,00", "--note", "Pão")
+    check("pay qr refuses and names pay qr --from asaas",
+          code == 2 and out == "" and err.splitlines() == moved(
+              "qr", 'pay qr --from asaas --code 00020126580014br.gov.bcb.pix --amount 35,00 --note "Pão"   (pay -h)'),
+          f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "bill", "23793.38128 60012.341071", "--note", "Luz")
+    check("pay bill refuses and names pay bill --from asaas",
+          code == 2 and out == "" and err.splitlines() == moved(
+              "bill", 'pay bill --from asaas --line "23793.38128 60012.341071" --note "Luz"   (pay -h)'),
+          f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "recharge", "11912345678", "20")
+    check("pay recharge refuses and names pay recharge --from asaas",
+          code == 2 and out == "" and err.splitlines() == moved(
+              "recharge", "pay recharge --from asaas --number 11912345678 --amount 20   (pay -h)"),
+          f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "pix", "pia@example.com", "18,00", "--note=Aula")
+    check("pay pix accepts --note= as the old parser did",
+          code == 2 and out == "" and err.splitlines() == moved("pix", spec_fix), f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "pix", "-h")
+    check("pay pix -h refuses instead of printing the old usage",
+          code == 2 and out == "" and err.splitlines()[0] == "asaas: pay pix moved to the pay command", f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "pix", "11912345678", "20", "--note", "x", "--type", "PHONE")
+    check("pay pix keeps --type in the fix line",
+          code == 2 and err.splitlines()[-1] == '  fix: pay pix --from asaas --to 11912345678 --amount 20 --note "x" --type PHONE   (pay -h)',
+          err)
+    turn = ignite_installation(home)
+    before = len(Stub.seen)
+    code, out, err = run(work, server, "pay", "pix", "pia@example.com", "18,00", "--note", "Aula", extra=turn)
+    check("pay pix inside a turn refuses and records nothing",
+          code == 2 and out == "" and err.splitlines() == moved("pix", spec_fix)
+          and len(Stub.seen) == before and not ledger(home, "P-0001"), f"exit {code}\n{out}{err}")
+    code, out, err = run(work, server, "pay", "-h")
+    listed = [ln.strip().split()[0] for ln in out.splitlines()
+              if ln.strip().split()[:1] and ln.strip().split()[0] in ("pix", "qr", "bill", "recharge", "resolve", "execute", "status")]
+    check("asaas pay -h matches the spec sentence and lists only the waking service verbs",
+          code == 0 and PAY_SENTENCE in out and listed == ["resolve", "execute", "status"], out)
+    for verb in ("resolve", "execute", "status"):
+        code, out, err = run(work, server, "pay", verb, "-h")
+        check(f"pay {verb} -h still answers", code == 0 and "Ignite's waking service" in out, out + err)
+    code, out, err = run(work, server, "-h")
+    check("asaas -h keeps the reads and does not tell an agent to pay with asaas pay pix",
+          code == 0 and all(name in out for name in ("balance", "statement", "pix", "payments", "payment", "cancel", "receipt"))
+          and "asaas pay pix" not in out and "pay pix KEY" not in out, out)
+
+
 def pay_checks(server, home, work, R):
     turn = ignite_installation(home)
     R[("GET", "/v3/pix/addressKeys/external")] = (200, {"key": "kenu@example.com", "type": "EMAIL",
@@ -266,87 +343,43 @@ def pay_checks(server, home, work, R):
         pay_commands(server, home, work, R, turn, line)
     finally:
         check("no pay command called a paying endpoint", paying(Stub.seen) == [], paying(Stub.seen))
+    R[("POST", "/v3/pix/qrCodes/decode")] = (200, QR_DECODED)
     service_commands(server, home, work, R, turn, line)
 
 
+def seed_reads(home):
+    """Rows for the read and cancel verbs. The paying verbs no longer record a request."""
+    key = json.dumps(CONVERSATION)
+    gate_do(home, f"""
+const who = {{ name: 'KENU EXAMPLE SILVA', key: 'kenu@example.com', keyType: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' }};
+const ask = (method, recipient, amount, note) => gate.request({{
+  agent: 'sara', conversationKey: {key}, connector: 'asaas', method, recipient, amountCents: amount, feeCents: 0, note }});
+gate.saveSettings({{ mode: 'case_by_case', limits: {{}} }});
+ask('pix', who, 9900, 'Owed to Kenu');
+ask('pix', who, 1800, 'Aula');
+gate.saveSettings({{ mode: 'automatic', limits: {{ week: 1500000 }} }});
+ask('pix', who, 100, 'Coffee');
+if (!gate.claim('P-0003')) throw new Error('claim P-0003');
+gate.sent('P-0003', {{ connectorId: 'tr_5', connectorStatus: 'PENDING' }});
+ask('qr', {{ name: 'PADARIA PAO BOM', key: '000201', keyType: 'QR' }}, 3500, 'Bread');
+if (!gate.claim('P-0004')) throw new Error('claim P-0004');
+gate.sent('P-0004', {{ connectorId: 'pq_7' }});
+""")
+
+
 def pay_commands(server, home, work, R, turn, line):
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "99", "--note", "Owed to Kenu")
-    check("pay outside a turn is refused before any call", code == 1 and "inside an Ignite turn" in err and not Stub.seen, out + err)
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "99.999", "--note", "x", extra=turn)
-    check("a malformed amount exits 2 before any call", code == 2 and "not an amount in reais" in err and not Stub.seen, err)
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "1", "--note", "x" * 141, extra=turn)
-    check("a note over 140 characters exits 2", code == 2 and not Stub.seen, err)
-    code, out, err = run(work, server, "pay", "bill", "1234", "--note", "x", extra=turn)
-    check("a bill line that is not 47 or 48 digits exits 2", code == 2 and not Stub.seen, err)
-    code, out, err = run(work, server, "pay", "pix", "00020126580014br.gov.bcb.pix0136a1b2", "35", "--note", "Bread", extra=turn)
-    check("a QR code given as a key is refused as a QR code, before any call", code == 1 and not Stub.seen
-          and "asaas: this is a Pix QR code (copy and paste), not a Pix key" in err and "fix: asaas pay qr PAYLOAD --note TEXT" in err, err)
-
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "99", "--note", "Owed to Kenu", extra=turn)
-    check("off: the gate refuses and pay exits 1", code == 1 and out.splitlines() == [
-        "Recipient   KENU EXAMPLE SILVA · ***.123.456-** · Nubank",
-        "Amount      R$ 99,00",
-        "State       refused: payments are off",
-        "Request     P-0001"], out + err)
-    row = ledger(home, "P-0001")
-    check("the gate recorded the looked-up recipient and the agent's conversation",
-          row and row["recipient_key"] == "kenu@example.com" and row["recipient_key_type"] == "EMAIL"
-          and row["agent"] == "sara" and row["conversation_key"] == CONVERSATION and row["amount_cents"] == 9900, row)
-
-    gate_do(home, "gate.saveSettings({ mode: 'automatic', limits: { week: 15000 } });")
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "70,00", "--note", "Lunch", extra=turn)
-    check("automatic within the limit: approved, Ignite sends it", code == 0 and out.splitlines()[2:] == [
-        "State       approved: Ignite is sending it",
-        "Request     P-0002, the outcome arrives in this conversation",
-        "Next        asaas payment P-0002 shows when it is sent"], out + err)
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "99.00", "--note", "Owed to Kenu", extra=turn)
-    check("over the weekly limit: the specification's example, then the next step, exit 0", code == 0 and out.splitlines() == [
-        "Recipient   KENU EXAMPLE SILVA · ***.123.456-** · Nubank",
-        "Amount      R$ 99,00",
-        "State       pending: over the weekly limit (R$ 80,00 left of R$ 150,00)",
-        "Request     P-0003, sent to the owner for approval",
-        "Next        end this turn waiting_workers: Ignite wakes this conversation with the owner's decision; asaas payment P-0003 shows it meanwhile"], out + err)
-    code, out, err = run(work, server, "--json", "pay", "pix", "kenu@example.com", "99", "--note", "Again", extra=turn)
-    body = json.loads(out) if code == 0 else {}
-    check("--json gives the gate's request as fixed fields", body.get("id") == "P-0004" and body.get("state") == "pending"
-          and body.get("reason") == "over the weekly limit (R$ 80,00 left of R$ 150,00)", out + err)
-
-    def service():
-        for _ in range(200):
-            row = ledger(home, "P-0005")
-            if row.get("state") == "approved":
-                gate_do(home, "gate.claim('P-0005'); gate.sent('P-0005', { connectorId: 'tr_5', connectorStatus: 'PENDING' });")
-                return
-            time.sleep(0.05)
-    helper = threading.Thread(target=service)
-    helper.start()
-    code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "1", "--note", "Coffee", extra={**turn, "ASAAS_GATE_WAIT": "10"})
-    helper.join()
-    check("pay waits for Ignite to send an approved payment and prints it sent", code == 0 and out.splitlines()[2:] == [
-        "State       sent: approved by rule (within the limits)",
-        "Request     P-0005, Asaas id tr_5"], out + err)
-
-    code, out, err = run(work, server, "pay", "bill", line[:5] + "." + line[5:], "--note", "Electricity", extra=turn)
-    sim = [x for x in Stub.seen if x["path"] == "/v3/bill/simulate"]
-    row = ledger(home, "P-0006")
-    check("pay bill shows the simulated value and fee first, and asks the gate for the amount plus the fee",
-          code == 0 and sim and sim[-1]["body"] == {"identificationField": line}
-          and out.splitlines()[:3] == ["Simulated   bill R$ 20,00, fee R$ 1,99, due 2026-10-20: R$ 21,99 counts toward the limits",
-                                       "Recipient   ENEL DISTRIBUICAO · **.123.456/0001-** · 237", "Amount      R$ 20,00 + fee R$ 1,99"]
-          and row.get("amount_cents") == 2000 and row.get("fee_cents") == 199 and row.get("recipient_key") == line and row.get("method") == "bill", out + err)
-
-
+    seed_reads(home)
     code, out, err = run(work, server, "payments", "--state", "pending", extra=turn)
-    check("payments lists this agent's requests", code == 0 and out.splitlines()[0].startswith("P-0004  pending")
-          and "P-0003  pending" in out, out + err)
-    code, out, err = run(work, server, "payment", "P-0005", extra=turn)
+    check("payments lists this agent's requests", code == 0 and out.splitlines()[0].startswith("P-0002  pending")
+          and "P-0001  pending" in out, out + err)
+    code, out, err = run(work, server, "payment", "P-0003", extra=turn)
     check("payment shows the state and the Asaas id", code == 0 and "State       sent: approved by rule (within the limits)" in out
           and "Asaas id    tr_5 (PENDING)" in out, out + err)
-    code, out, err = run(work, server, "cancel", "P-0004", extra=turn)
-    check("cancel withdraws a pending request", code == 0 and out.strip() == "Cancelled   P-0004: withdrawn before the owner decided"
-          and ledger(home, "P-0004").get("state") == "cancelled", out + err)
-    code, out, err = run(work, server, "cancel", "P-0004", extra=turn)
-    check("cancel refuses a request with nothing to cancel", code == 1 and "P-0004 is cancelled: nothing to cancel" in err, out + err)
+    code, out, err = run(work, server, "cancel", "P-0002", extra=turn)
+    check("cancel withdraws a pending request", code == 0 and out.strip() == "Cancelled   P-0002: withdrawn before the owner decided"
+          and ledger(home, "P-0002").get("state") == "cancelled", out + err)
+    code, out, err = run(work, server, "cancel", "P-0002", extra=turn)
+    check("cancel refuses a request with nothing to cancel", code == 1 and "P-0002 is cancelled: nothing to cancel" in err, out + err)
     code, out, err = run(work, server, "payment", "P-0999", extra=turn)
     check("an unknown id names the gate's reason and this tool's fix", code == 1 and err.splitlines() == [
         "asaas: Ignite's payment gate: unknown payment request: P-0999",
@@ -355,60 +388,18 @@ def pay_commands(server, home, work, R, turn, line):
     code, out, err = run(work, server, "payments", "--state", "failed", extra=turn)
     check("an empty filtered list names the filter", code == 0 and out.strip() == "No failed payment requests.", out + err)
     R[("DELETE", "/v3/transfers/tr_5/cancel")] = (200, {"id": "tr_5", "status": "CANCELLED"})
-    code, out, err = run(work, server, "cancel", "P-0005", extra=turn)
-    check("cancel of a sent payment cancels it at Asaas", code == 0 and out.splitlines()[0] == "Cancelled   P-0005 at Asaas (tr_5): CANCELLED", out + err)
-    qr_and_recharge(server, home, work, R, turn)
+    code, out, err = run(work, server, "cancel", "P-0003", extra=turn)
+    check("cancel of a sent payment cancels it at Asaas", code == 0 and out.splitlines()[0] == "Cancelled   P-0003 at Asaas (tr_5): CANCELLED", out + err)
+    before = len(Stub.seen)
+    code, out, err = run(work, server, "cancel", "P-0004", extra=turn)
+    check("cancel refuses a sent QR payment, naming who can cancel it", code == 1 and err.splitlines() == [
+        "asaas: P-0004 is a qr payment Asaas already has", "  why: this tool cancels Pix key transfers and bills only",
+        "  fix: ask the owner to cancel it in the Asaas app while Asaas allows it"] and len(Stub.seen) == before, err)
 
 
 QR = "00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d520400005303986540535.005802BR5907PADARIA6009SAO PAULO62070503***6304ABCD"
 QR_DECODED = {"value": 35.0, "totalValue": 35.0, "canBePaid": True, "canBePaidWithDifferentValue": False,
               "receiver": {"name": "PADARIA PAO BOM", "cpfCnpj": "**.222.333/0001-**", "ispbName": "Banco Z"}}
-
-
-def qr_and_recharge(server, home, work, R, turn):
-    gate_do(home, "gate.saveSettings({ mode: 'case_by_case', limits: {} });")
-    R[("POST", "/v3/pix/qrCodes/decode")] = (200, QR_DECODED)
-    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
-    row = ledger(home, "P-0007")
-    check("pay qr decodes the QR code and asks the gate for its amount and receiver", code == 0 and out.splitlines()[:4] == [
-        "Recipient   PADARIA PAO BOM · **.222.333/0001-** · Banco Z",
-        "Amount      R$ 35,00",
-        "State       pending: case by case: every payment waits for the owner",
-        "Request     P-0007, sent to the owner for approval"]
-          and row.get("method") == "qr" and row.get("recipient_key") == QR and row.get("recipient_key_type") == "QR"
-          and row.get("amount_cents") == 3500, out + err + str(row))
-    code, out, err = run(work, server, "pay", "qr", QR, "--amount", "40", "--note", "Bread", extra=turn)
-    check("pay qr refuses an amount the QR code does not allow, and records nothing", code == 1
-          and err.splitlines()[0] == "asaas: this QR code charges R$ 35,00, not R$ 40,00" and not ledger(home, "P-0008"), out + err)
-    R[("POST", "/v3/pix/qrCodes/decode")] = (200, {**QR_DECODED, "value": 0, "totalValue": None})
-    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
-    check("a QR code with no amount needs --amount", code == 1 and err.splitlines() == [
-        "asaas: this QR code carries no amount", "  why: the payer chooses it", "  fix: asaas pay qr PAYLOAD --amount 35,00 --note TEXT"], err)
-    code, out, err = run(work, server, "--json", "pay", "qr", QR, "--amount", "12,50", "--note", "Bread", extra=turn)
-    check("a QR code with no amount is paid the --amount given", code == 0 and json.loads(out)["amount_cents"] == 1250
-          and json.loads(out)["method"] == "qr", out + err)
-    R[("POST", "/v3/pix/qrCodes/decode")] = (200, {**QR_DECODED, "canBePaid": False, "cannotBePaidReason": "QR Code expirado"})
-    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
-    check("a QR code Asaas cannot pay is refused with Asaas's reason", code == 1
-          and err.splitlines()[:2] == ["asaas: Asaas cannot pay this QR code", "  why: QR Code expirado"], err)
-    R[("POST", "/v3/pix/qrCodes/decode")] = (200, QR_DECODED)
-    before = len(Stub.seen)
-    code, out, err = run(work, server, "pay", "qr", "kenu@example.com", "--note", "Bread", extra=turn)
-    check("pay qr refuses text that is not a QR code, before any call", code == 2 and "starts with 000201" in err and len(Stub.seen) == before, err)
-    code, out, err = run(work, server, "--json", "pay", "recharge", "+55 (11) 91234-5678", "20", extra=turn)
-    row = ledger(home, "P-0009")
-    check("pay recharge asks the gate for the phone, as 11 digits, and the amount", code == 0 and json.loads(out)["state"] == "pending"
-          and row.get("method") == "recharge" and row.get("recipient_key") == "11912345678" and row.get("recipient_key_type") == "PHONE"
-          and row.get("amount_cents") == 2000 and row.get("note") is None and len(Stub.seen) == before, out + err + str(row))
-    code, out, err = run(work, server, "pay", "recharge", "1234", "20", extra=turn)
-    check("pay recharge refuses a number that is not a mobile number, naming the quoting", code == 2 and err.splitlines()[-1] ==
-          'asaas pay recharge: error: argument phone: a mobile number has 11 digits with its area code, like 11912345678 or "11 91234-5678" (quoted when it has spaces; +55 optional)', err)
-    gate_do(home, "gate.resolved('P-0007', { key: gate.get('P-0007').recipient_key }); gate.approve('P-0007');"
-                  " gate.claim('P-0007'); gate.sent('P-0007', { connectorId: 'pq_7' });")
-    code, out, err = run(work, server, "cancel", "P-0007", extra=turn)
-    check("cancel refuses a sent QR payment, naming who can cancel it", code == 1 and err.splitlines() == [
-        "asaas: P-0007 is a qr payment Asaas already has", "  why: this tool cancels Pix key transfers and bills only",
-        "  fix: ask the owner to cancel it in the Asaas app while Asaas allows it"] and len(Stub.seen) == before, err)
 
 
 def service_commands(server, home, work, R, turn, line):

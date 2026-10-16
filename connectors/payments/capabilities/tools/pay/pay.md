@@ -23,7 +23,7 @@ A connector's refusal passes through as its three lines with `pay:` in front of 
 
 ## Hand-over
 
-Until the live R$1 test through `pay` and the switch of Sara's tool, `asaas pay pix|qr|bill|recharge` still call the gate themselves; both paths are gated, and `asaas pay`'s paying verbs are removed after the switch (spec-pay.md 3.10, step 5). A PIN never passes through `pay`; the API key is read by the connector; neither stream prints either.
+`asaas pay pix|qr|bill|recharge` refuse and name `pay` with `--from asaas`. `asaas pay` keeps `resolve`, `execute` and `status` for Ignite's waking service. A PIN never passes through `pay`; the API key is read by the connector; neither stream prints either.
 
 ## Maintenance
 

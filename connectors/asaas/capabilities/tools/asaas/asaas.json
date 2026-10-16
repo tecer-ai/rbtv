@@ -1,5 +1,5 @@
 {
   "name": "asaas",
-  "description": "Asaas bank account from one command: shows the balance and the statement, looks up who owns a Pix key, decodes a Pix QR code, and pays by Pix key, Pix QR code, bill or mobile top-up only through Ignite's payment gate.",
+  "description": "Asaas bank account from one command: shows the balance and the statement, looks up who owns a Pix key, decodes a Pix QR code, lists and shows payment requests, withdraws a pending one, cancels a sent Pix or bill, and saves a receipt. Paying is the pay command.",
   "entry": "asaas.py"
 }

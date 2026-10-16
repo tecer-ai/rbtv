@@ -21,7 +21,7 @@ The [payment gate](capabilities/glossary/payment-gate.md) decides whether an age
 - **Payments are approved outside any model.** Ignite holds the gate, its settings and its ledger, because Ignite already receives the owner's Slack actions over its socket and is the one process the agents do not control. The Slack connector writes with the owner's token, so nothing an agent can type, post or edit in Slack is an approval.
 - **Manual approval is a button that opens a PIN form**, never a typed message, a canvas or a slash command carrying the PIN: an agent cannot click a button or submit a modal. The PIN is asked on every approval the owner makes and on every settings save.
 - **The owner sets the mode and limits in `/payments`**, a modal the agents do not see. Automatic always has a ceiling: it is refused on save with no limit set.
-- **The gate is bank-neutral; the bank lives in its connector.** The connector's command resolves the recipient and the `pay` port command asks (`asaas pay` until Sara's tool is switched); Ignite's service sends what was approved by running that connector's command, and answers the bank's withdrawal validation from the ledger, so an API call that skipped the gate is refused even with the key.
+- **The gate is bank-neutral; the bank lives in its connector.** The connector's command resolves the recipient and the `pay` port command asks; Ignite's service sends what was approved by running that connector's command, and answers the bank's withdrawal validation from the ledger, so an API call that skipped the gate is refused even with the key.
 
 Choices made when the gate was built, 2026-10-15, open to the owner's review:
 

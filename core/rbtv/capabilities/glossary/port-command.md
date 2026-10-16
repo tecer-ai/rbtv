@@ -2,7 +2,7 @@
 
 A port command is the command agents call for a [port](port.md), which picks the [connector](connector.md): `message send --to Pia "…"`, `pay pix …`, `calendar list`. The agent names the [operation](operation.md) and its inputs; the port command holds the port's policy, chooses the connector that provides the operation and hands it the work. Swapping a connector is then invisible to agents.
 
-`cast` is the port command of `agent.run`: it launches an agent on any harness, the harnesses are its adapters and the AI labs are its [providers](provider.md). `message` (`connectors/messaging/capabilities/tools/message/`) and `pay` (`connectors/payments/capabilities/tools/pay/`) are the port commands of the messaging and payments ports; `pay` holds the payment gate call, and `asaas pay pix|qr|bill|recharge` still call the gate themselves until the hand-over ends (the R$1 test through `pay`, Sara's tool switched), neither path ever existing without the gate.
+`cast` is the port command of `agent.run`: it launches an agent on any harness, the harnesses are its adapters and the AI labs are its [providers](provider.md). `message` (`connectors/messaging/capabilities/tools/message/`) and `pay` (`connectors/payments/capabilities/tools/pay/`) are the port commands of the messaging and payments ports; `pay` holds the payment gate call. A payments connector's command keeps `pay resolve`, `pay execute` and `pay status` for the waking service and does not pay.
 
 ## What a port command owns
 
