@@ -1099,16 +1099,16 @@ test('legend: the modal, its header, and the heading and rows of each group as a
   assert.deepEqual(view.blocks[1], { type: 'context', elements: [mrkdwn('Each owner message carries up to two reactions. '
     + 'The left one is the system and stays still. The right one is the agent while it works, then the task once it replies.')] });
   assert.deepEqual(view.blocks[3], { type: 'section', text: mrkdwn('*System* · left · stays still') });
-  assert.deepEqual(view.blocks[4].fields.slice(0, 2), [mrkdwn(':hourglass_flowing_sand: *queued*'), mrkdwn('Received; waiting for a turn to start.')]);
+  assert.deepEqual(view.blocks[4].fields.slice(0, 2), [mrkdwn(':hourglass_flowing_sand: *Queued*'), mrkdwn('Received; waiting for a turn to start.')]);
   assert.deepEqual(view.blocks[6], { type: 'section', text: mrkdwn('*Agent* · right · moves while it works') });
   assert.deepEqual(view.blocks[7].fields.slice(0, 4), [
-    mrkdwn(':clock12::clock2::clock4::clock6::clock8::clock10: *working*'), mrkdwn('At work; it has not named the kind of work.'),
-    mrkdwn(':mag::mag_right: *gathering*'), mrkdwn('Reading, searching and collecting what the work needs.'),
+    mrkdwn(':clock12::clock2: *Working*'), mrkdwn('At work; it has not named the kind of work.'),
+    mrkdwn(':mag::mag_right: *Gathering*'), mrkdwn('Reading, searching and collecting what the work needs.'),
   ]);
   // The sixth agent row continues in a second section.
-  assert.deepEqual(view.blocks[8], { type: 'section', fields: [mrkdwn(':zzz::sleeping: *waiting*'), mrkdwn('Waiting for its workers to finish.')] });
+  assert.deepEqual(view.blocks[8], { type: 'section', fields: [mrkdwn(':zzz::sleeping: *Waiting*'), mrkdwn('Waiting for its workers to finish.')] });
   assert.deepEqual(view.blocks[10], { type: 'section', text: mrkdwn('*Task* · right · once it replies') });
-  assert.deepEqual(view.blocks[11].fields.slice(2, 4), [mrkdwn(':warning: *caveats*'), mrkdwn('Done, with problems worth a follow-up.')]);
+  assert.deepEqual(view.blocks[11].fields.slice(2, 4), [mrkdwn(':warning: *Caveats*'), mrkdwn('Done, with problems worth a follow-up.')]);
 });
 
 test('legend: every state of the Ignite contract appears once, in order, with its emoji and meaning, and nothing else', () => {
@@ -1129,10 +1129,13 @@ test('legend: every state of the Ignite contract appears once, in order, with it
     }
   }
   for (const [name, states] of [['system', live.SYSTEM], ['agent', live.AGENT], ['task', live.TASK]]) {
-    assert.deepEqual(shown[name].map((row) => row.state), [...states], name);
+    assert.deepEqual(shown[name].map((row) => row.state.toLowerCase()), [...states], name);
     for (const row of shown[name]) {
-      assert.equal(row.emoji, [EMOJI[name][row.state]].flat().map((n) => `:${n}:`).join(''), `${name} ${row.state}`);
-      assert.equal(row.meaning, live.MEANING[name][row.state]);
+      // An animated state shows its first two frames only (owner, 2026-10-16).
+      const key = row.state.toLowerCase();
+      assert.equal(row.emoji, [EMOJI[name][key]].flat().slice(0, 2).map((n) => `:${n}:`).join(''), `${name} ${key}`);
+      assert.equal(row.state, key.charAt(0).toUpperCase() + key.slice(1));
+      assert.equal(row.meaning, live.MEANING[name][key]);
       // A meaning is a plain sentence: no emoji and no Slack markup.
       assert.match(row.meaning, /^[A-Z][^:*_\p{Extended_Pictographic}]*\.$/u, `${name} ${row.state}`);
     }

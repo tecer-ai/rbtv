@@ -346,8 +346,10 @@ function legendView(meaning) {
   for (const [layer, heading] of LEGEND_GROUPS) {
     blocks.push({ type: 'divider' }, { type: 'section', text: mrkdwn(heading) });
     const rows = Object.entries(meaning?.[layer] || {}).map(([state, sentence]) => {
-      const emoji = [EMOJI[layer][state] || []].flat().map((name) => `:${name}:`).join('');
-      return [mrkdwn([emoji, `*${state}*`].filter(Boolean).join(' ')), mrkdwn(sentence)];
+      // An animated state shows its first two frames only: enough to read as motion (owner, 2026-10-16).
+      const emoji = [EMOJI[layer][state] || []].flat().slice(0, 2).map((name) => `:${name}:`).join('');
+      const name = state.charAt(0).toUpperCase() + state.slice(1);
+      return [mrkdwn([emoji, `*${name}*`].filter(Boolean).join(' ')), mrkdwn(sentence)];
     });
     for (let at = 0; at < rows.length; at += LEGEND_ROWS) {
       blocks.push({ type: 'section', fields: rows.slice(at, at + LEGEND_ROWS).flat() });
