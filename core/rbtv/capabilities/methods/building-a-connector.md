@@ -13,19 +13,21 @@ A connector has two parts with separate entry points. Both are required for ever
 | Part | What it is | Who runs it |
 |---|---|---|
 | Command | A [tool](../glossary/tool.md) at `capabilities/tools/<name>/`, in any language (Asaas: Python), that knows nothing of Ignite. It carries every operation an agent runs on the service and the service's own features | Agents, from their turns |
-| Adapter | A Node module at `capabilities/tools/<name>/lib/<port>.js`, one per port the record names in `type` and `serves`, exporting the shape of the table below, which translates the service into the port's [operations](../glossary/operation.md) | Ignite, in its own process, loaded by the connector's name |
+| Adapter | A Node module under `capabilities/tools/<name>/lib/`, one per port the record names in `type` and `serves`, named by the rule below and exporting the shape of the table below, which translates the service into the port's [operations](../glossary/operation.md) | Ignite, in its own process, loaded by the connector's name |
 
 The adapter is in-process because Ignite is a daemon that reacts, polls and ticks; a command started per call is not viable there. When the command and the adapter are in different languages (Asaas: a Python command, a Node adapter), the connector may carry two implementations of one service call, one in each part; keep them in agreement by testing both against the same fixtures of the service's bodies. When both are Node, share one implementation, the command requiring the adapter's module or both requiring one module under `lib/`, so the service call has one home ([Single source of truth](../principles/single-source-of-truth.md)).
 
 Policy is not the connector's. The payment gate decides in Ignite, and a message's permission is checked by the port command: the connector resolves, asks and executes what was allowed.
 
-### What each port's adapter exports
+### The adapter file and what it exports
 
-| Port | File under `capabilities/tools/<name>/lib/` | Exports |
-|---|---|---|
-| `payments` | `withdrawal-validation.js` | `path`, `header`, `tokenEnv` and `read(body)`, as the [payment gate](../../../ignite/capabilities/glossary/payment-gate.md)'s withdrawal validation states; Ignite's `payment-webhook.js` loads it by the connector's name and refuses another shape |
-| `messaging` | `messaging.js` | `operations`, as the [messaging contract](../../../../connectors/messaging/capabilities/methods/messaging-contract.md)'s Adapter section states: one async function per operation of the contract the record `provides`, keyed by the operation's name, with the input and result fields that section names |
-| Any other port (`media`, `judgment`, `calendar`, `storage`, or a port this connector is the first of) | `<port>.js` | `operations`: an object with one async function per operation the record `provides` for that port, keyed by the operation's name (`operations['media.transcribe']`). Each takes one object and returns one object whose fields are the ones the command's verb for the same operation takes and prints in its structured output, so the two parts describe one operation. A token is read by its environment variable name inside the function, never when the module loads |
+The adapter of a port is `capabilities/tools/<name>/lib/<port>.js` (`lib/messaging.js`, `lib/calendar.js`). The one exception is the payments adapter, `lib/withdrawal-validation.js`: Ignite's `payment-webhook.js` loads it at that name, and the exception lasts until that loader changes.
+
+| Port | Exports |
+|---|---|
+| `payments` | `path`, `header`, `tokenEnv` and `read(body)`, as the [payment gate](../../../ignite/capabilities/glossary/payment-gate.md)'s withdrawal validation states; Ignite's `payment-webhook.js` loads it by the connector's name and refuses another shape |
+| `messaging` | `operations`, as the [messaging contract](../../../../connectors/messaging/capabilities/methods/messaging-contract.md)'s Adapter section states: one async function per operation of the contract the record `provides`, keyed by the operation's name, with the input and result fields that section names |
+| Any other port (`media`, `judgment`, `calendar`, `storage`, or a port this connector is the first of) | `operations`: an object with one async function per operation the record `provides` for that port, keyed by the operation's name (`operations['media.transcribe']`). Each takes one object and returns one object whose fields are the ones the command's verb for the same operation takes and prints in its structured output, so the two parts describe one operation. A token is read by its environment variable name inside the function, never when the module loads |
 
 A connector that serves several ports has one module per port, each holding the operations of its port.
 
@@ -49,7 +51,7 @@ Fill the record ([Component record](../glossary/component-json.md)):
 The Asaas connector took about ten hours from nothing to a working connector with a live gate. This order kept the risk late and the learning early; follow it, port by port.
 
 1. **Read commands first, on the real account, with no money on it.** Balance, statement, who owns a key; the account's own shapes are the fixtures for everything after. Keep a short script until a durable command is needed.
-2. **The adapter.** Its port's module from the table above, tested with recorded bodies of the service: from Ignite's suite when Ignite loads it ([Testing Ignite](../../../ignite/capabilities/methods/testing-ignite.md)), otherwise from a test program beside the connector's command.
+2. **The adapter.** Its port's module, named and shaped as The adapter file and what it exports states, tested with recorded bodies of the service: from Ignite's suite when Ignite loads it ([Testing Ignite](../../../ignite/capabilities/methods/testing-ignite.md)), otherwise from a test program beside the connector's command.
 3. **The blind usability pass of the command**, as Building a command-line interface runs it: cold users with the installed command and realistic jobs, nothing else. Repair what they could not do before any real exchange.
 4. **The shape check** below, then [Documenting a change](documenting-a-change.md).
 
@@ -97,7 +99,7 @@ adapter-check <name>
 
 1. `rbtv show` runs the installer's scan: a record without `type`, or a need no component provides, fails with the installer's refusal; a valid record prints a `Type:` line. When `rbtv` is not on PATH, run `python3 core/rbtv/capabilities/tools/rbtv/install.py show connectors/<name>` (`python` on Windows).
 2. The command answers help. Before the connector is installed, run the record's `entry` by its path with its interpreter instead of the shortcut.
-3. [adapter-check](../tools/adapter-check/adapter-check.md) loads, for each port in `type` and `serves`, the adapter file of the table above and checks its exports: a payments adapter through Ignite's own loader, so what passes here is what Ignite accepts; any other port's `operations`, one function per operation the record `provides` for that port, none of another port and none the record does not provide. Each defect is printed, one per line, and the run exits 1. Before the tool is installed, run `node core/rbtv/capabilities/tools/adapter-check/adapter-check.js <name>`.
+3. [adapter-check](../tools/adapter-check/adapter-check.md) loads, for each port in `type` and `serves`, the adapter file the rule above names and checks its exports: a payments adapter through Ignite's own loader, so what passes here is what Ignite accepts; any other port's `operations`, one function per operation the record `provides` for that port, none of another port and none the record does not provide. Each defect is printed, one per line, and the run exits 1. Before the tool is installed, run `node core/rbtv/capabilities/tools/adapter-check/adapter-check.js <name>`.
 4. One real read on the account, through the command.
 
 The check confirms the shape, not the behaviour: the tests of the command and of the adapter, the blind pass and, for a connector that writes, the real exchange are the evidence that it works.
