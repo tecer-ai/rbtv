@@ -21,7 +21,7 @@
 //   Each approve, refuse and settings interaction is recorded by its key, so a replay changes nothing. Five wrong
 //   PINs in a row lock every PIN form for 15 minutes (payments.js checkPin).
 // promptBlocks(gate, row) → the blocks of a request's message in its agent's thread: the recipient as Ignite
-//   resolved it through the provider, then Approve and Refuse while it is pending (Refuse alone while it is
+//   resolved it through the connector, then Approve and Refuse while it is pending (Refuse alone while it is
 //   unchecked), else its outcome.
 //   promptText(gate, row) → that message's text. The agent's own description shows only as a labelled note.
 // interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action
@@ -93,11 +93,11 @@ function details(gate, row) {
   const lines = [];
   const checked = row.resolved_at != null;
   if (checked) {
-    lines.push(`*Recipient* ${who(row.resolved_name, row.resolved_document, row.resolved_bank) || 'not named by the bank'} (checked by Ignite through ${esc(row.provider)})`);
+    lines.push(`*Recipient* ${who(row.resolved_name, row.resolved_document, row.resolved_bank) || 'not named by the bank'} (checked by Ignite through ${esc(row.connector)})`);
     lines.push(`*${keyLabel(row.method)}* ${esc(row.resolved_key || row.recipient_key)}`);
   } else {
     lines.push(row.resolve_error
-      ? `*Recipient* not checked: Ignite could not read it through ${esc(row.provider)} (${esc(row.resolve_error)})`
+      ? `*Recipient* not checked: Ignite could not read it through ${esc(row.connector)} (${esc(row.resolve_error)})`
       : '*Recipient* not checked by Ignite yet');
     lines.push(`*${keyLabel(row.method)}* ${esc(row.recipient_key)}`);
   }
@@ -113,7 +113,7 @@ function details(gate, row) {
 function outcome(gate, row) {
   if (row.state === 'pending') return `Waits for you: ${esc(row.reason)}`;
   if (row.state === 'approved') return row.decided_by === 'owner' ? 'Approved by you; Ignite is sending it.' : 'Approved by rule; Ignite is sending it.';
-  if (row.state === 'sent') return `Sent: ${esc(row.provider)} id ${esc(row.provider_id)}${row.provider_status ? `, ${esc(row.provider_status)}` : ''} · ${receiptLink(row.receipt_url)}`;
+  if (row.state === 'sent') return `Sent: ${esc(row.connector)} id ${esc(row.connector_id)}${row.connector_status ? `, ${esc(row.connector_status)}` : ''} · ${receiptLink(row.receipt_url)}`;
   if (row.state === 'uncertain') return `Uncertain: ${esc(row.reason)}`;
   if (row.state === 'refused') return row.decided_by === 'owner' ? 'Refused by you.' : `Refused: ${esc(row.reason)}`;
   if (row.state === 'cancelled') return 'Withdrawn by the agent.';

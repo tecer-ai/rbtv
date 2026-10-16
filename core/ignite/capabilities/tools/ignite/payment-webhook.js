@@ -3,28 +3,28 @@
 // The withdrawal validation: before money leaves the account, the bank asks Ignite whether the
 // operation is one the payment gate approved. The waking service answers from the ledger alone, never
 // from a model and never over the network. Bank-neutral: each bank's half (where it calls, the token's
-// header and variable, how its body reads) is a provider adapter in that bank's connector.
+// header and variable, how its body reads) is the withdrawal validation adapter of that bank's connector.
 //
 // API
-// loadProvider(name, { root? }) → the provider's adapter { path, header, tokenEnv, read(body) }, required from
+// loadConnector(name, { root? }) → the connector's adapter { path, header, tokenEnv, read(body) }, required from
 //   <root>/connectors/<name>/capabilities/tools/<name>/lib/withdrawal-validation.js, root being this repository.
 //   read(body) → { method, reference, operationId, amountCents, recipientKey } | { refuse: reason }. Throws for a
 //   name that is not a slug, an absent file, or an adapter of another shape.
-// validate(gate, provider, adapter, headers, body, token) → { status: 'APPROVED', id } | { status: 'REFUSED', refuseReason, id, busy? }
+// validate(gate, connector, adapter, headers, body, token) → { status: 'APPROVED', id } | { status: 'REFUSED', refuseReason, id, busy? }
 //   REFUSED unless the token is configured and the adapter's header equals it, the adapter reads the body as an
 //   operation, and gate.answer approves it (payments.js). A ledger still busy after the gate's own wait is REFUSED
 //   with that reason and busy: true.
-// createWebhook({ gate, providers, token, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
-//   gate: a Gate on its own connection whose busy wait is 0, so no call blocks. providers: { name: adapter };
-//   token(name) → that provider's configured token or null. An HTTP listener on host (127.0.0.1) and port. A busy
+// createWebhook({ gate, connectors, token, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
+//   gate: a Gate on its own connection whose busy wait is 0, so no call blocks. connectors: { name: adapter };
+//   token(name) → that connector's configured token or null. An HTTP listener on host (127.0.0.1) and port. A busy
 //   ledger is tried again every 20 ms without blocking, so calls never queue behind one another; one still busy
-//   600 ms after its call arrived is answered REFUSED with the reason. A path no provider owns gets 404, another
+//   600 ms after its call arrived is answered REFUSED with the reason. A path no connector owns gets 404, another
 //   method 405; a body over 64 KB or not read within 1 s is refused. Each answer is logged as
-//   { event: 'payment-webhook', provider, id, status, reason }.
-// startWebhook({ workspace, timeZone, currency, providers, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
+//   { event: 'payment-webhook', connector, id, status, reason }.
+// startWebhook({ workspace, timeZone, currency, connectors, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
 //   The waking service's listener: createWebhook in a worker thread of its own, with its own ledger connection, so
 //   nothing the service's main thread waits for (a ledger or a store another process holds, a long pass) delays an
-//   answer. providers: the provider names; the worker loads their adapters and reads each token by its adapter's
+//   answer. connectors: the connector names; the worker loads their adapters and reads each token by its adapter's
 //   variable (process environment, then .rbtv/config/env/.env) on every call. Its log lines arrive through log.
 
 const http = require('node:http');
@@ -41,19 +41,19 @@ const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function loadProvider(name, { root = REPO } = {}) {
-  if (typeof name !== 'string' || !SLUG.test(name)) throw new Error(`payment provider ${name} is not a provider name`);
+function loadConnector(name, { root = REPO } = {}) {
+  if (typeof name !== 'string' || !SLUG.test(name)) throw new Error(`payments connector ${name} is not a connector name`);
   const file = path.join(root, 'connectors', name, 'capabilities', 'tools', name, 'lib', 'withdrawal-validation.js');
   let adapter;
   try {
     adapter = require(file);
   } catch (error) {
-    throw new Error(`payment provider ${name} has no withdrawal validation at ${file}: ${error.message}`);
+    throw new Error(`payments connector ${name} has no withdrawal validation at ${file}: ${error.message}`);
   }
   const ok = adapter && typeof adapter.path === 'string' && adapter.path.startsWith('/')
     && typeof adapter.header === 'string' && adapter.header === adapter.header.toLowerCase()
     && typeof adapter.tokenEnv === 'string' && ENV_NAME.test(adapter.tokenEnv) && typeof adapter.read === 'function';
-  if (!ok) throw new Error(`payment provider ${name}: ${file} must export path, header (lowercase), tokenEnv and read(body)`);
+  if (!ok) throw new Error(`payments connector ${name}: ${file} must export path, header (lowercase), tokenEnv and read(body)`);
   return adapter;
 }
 
@@ -67,16 +67,16 @@ function busy(error) {
   return error?.errcode === 5 || error?.errcode === 6 || /database is (locked|busy)/i.test(String(error?.message));
 }
 
-function validate(gate, provider, adapter, headers, body, token) {
+function validate(gate, connector, adapter, headers, body, token) {
   const refused = (refuseReason, id = null) => ({ status: 'REFUSED', refuseReason, id });
-  if (!adapter) return refused(`unknown provider ${provider}`);
+  if (!adapter) return refused(`unknown connector ${connector}`);
   if (!token) return refused('the webhook token is not configured in Ignite');
   if (!sameToken(headers?.[adapter.header], token)) return refused('bad token');
   const op = adapter.read(body);
   if (op.refuse) return refused(op.refuse);
   let answer;
   try {
-    answer = gate.answer({ provider, ...op });
+    answer = gate.answer({ connector, ...op });
   } catch (error) {
     if (busy(error)) return { ...refused(`the ledger is busy (${error.message}): nothing was approved`), busy: true };
     return refused(`Ignite could not check it: ${error.message}`);
@@ -85,8 +85,8 @@ function validate(gate, provider, adapter, headers, body, token) {
   return refused(answer.reason, answer.id);
 }
 
-function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', log = () => {} } = {}) {
-  const routes = new Map(Object.entries(providers).map(([name, adapter]) => [adapter.path, name]));
+function createWebhook({ gate, connectors = {}, token, port, host = '127.0.0.1', log = () => {} } = {}) {
+  const routes = new Map(Object.entries(connectors).map(([name, adapter]) => [adapter.path, name]));
   const retries = new Set();
   let server = null;
 
@@ -102,8 +102,8 @@ function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', 
 
   function handle(req, res) {
     const arrived = Date.now();
-    const provider = routes.get(String(req.url || '').split('?')[0]);
-    if (!provider) return reply(res, 404, { error: 'not found' });
+    const connector = routes.get(String(req.url || '').split('?')[0]);
+    if (!connector) return reply(res, 404, { error: 'not found' });
     if (req.method !== 'POST') return reply(res, 405, { error: 'POST only' });
     const chunks = [];
     let size = 0;
@@ -114,7 +114,7 @@ function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', 
       done = true;
       clearTimeout(timer);
       if (retry) { clearTimeout(retry); retries.delete(retry); }
-      note({ provider, id: answer.id || null, status: answer.status, reason: answer.refuseReason || null });
+      note({ connector, id: answer.id || null, status: answer.status, reason: answer.refuseReason || null });
       const body = answer.status === 'APPROVED' ? { status: 'APPROVED' } : { status: 'REFUSED', refuseReason: answer.refuseReason };
       reply(res, 200, body);
     };
@@ -141,7 +141,7 @@ function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', 
         if (done) return;
         let answer;
         try {
-          answer = validate(gate, provider, providers[provider], req.headers, body, token(provider));
+          answer = validate(gate, connector, connectors[connector], req.headers, body, token(connector));
         } catch (error) {
           answer = { status: 'REFUSED', refuseReason: `Ignite could not check it: ${error.message}` };
         }
@@ -183,13 +183,13 @@ function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', 
   return { listen, close };
 }
 
-function startWebhook({ workspace, timeZone, currency, providers = [], port, host = '127.0.0.1', log = () => {} } = {}) {
+function startWebhook({ workspace, timeZone, currency, connectors = [], port, host = '127.0.0.1', log = () => {} } = {}) {
   let worker = null;
   let exited = Promise.resolve();
 
   function listen() {
     return new Promise((resolve, reject) => {
-      const own = new Worker(__filename, { workerData: { paymentWebhook: { workspace, timeZone, currency, providers, port, host } } });
+      const own = new Worker(__filename, { workerData: { paymentWebhook: { workspace, timeZone, currency, connectors, port, host } } });
       worker = own;
       exited = new Promise((done) => own.once('exit', done));
       own.on('message', (message) => {
@@ -221,7 +221,7 @@ function startWebhook({ workspace, timeZone, currency, providers = [], port, hos
 }
 
 // The worker thread startWebhook starts: its own adapters, ledger connection and listener.
-function serve({ workspace, timeZone, currency, providers, port, host }) {
+function serve({ workspace, timeZone, currency, connectors, port, host }) {
   const { Gate } = require('./payments.js');
   const { envValue } = require('./config.js');
   let gate = null;
@@ -231,11 +231,11 @@ function serve({ workspace, timeZone, currency, providers, port, host }) {
     parentPort.close();
   };
   try {
-    const adapters = Object.fromEntries(providers.map((name) => [name, loadProvider(name)]));
+    const adapters = Object.fromEntries(connectors.map((name) => [name, loadConnector(name)]));
     gate = new Gate({ workspace, timeZone, currency, busyMs: 0 });
     hook = createWebhook({
       gate,
-      providers: adapters,
+      connectors: adapters,
       token: (name) => envValue(workspace, adapters[name].tokenEnv),
       port,
       host,
@@ -257,4 +257,4 @@ function serve({ workspace, timeZone, currency, providers, port, host }) {
 
 if (!isMainThread && workerData?.paymentWebhook) serve(workerData.paymentWebhook);
 
-module.exports = { loadProvider, validate, createWebhook, startWebhook };
+module.exports = { loadConnector, validate, createWebhook, startWebhook };

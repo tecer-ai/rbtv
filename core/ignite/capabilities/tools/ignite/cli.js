@@ -39,7 +39,7 @@ const VERBS = {
   wake: { options: ['conversation', 'note', 'work'], words: 0 },
   post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
   status: { options: ['task', 'message'], words: 1 },
-  'payment request': { options: ['provider', 'request'], words: 0 },
+  'payment request': { options: ['connector', 'provider', 'request'], words: 0 }, // provider: the older spelling
   'payment show': { options: [], words: 1 },
   'payment list': { options: ['state'], words: 0 },
   'payment cancel': { options: [], words: 1 },
@@ -520,7 +520,9 @@ function cmdPost(ctx, flags, deps, { opts }) {
     return 0;
   }
   const target = agentChannel(ctx.config, ctx.slug);
-  if (target.imUser) payload.imUser = target.imUser;
+  // The DM agent's channel is the owner's direct conversation, a contact: a new thread there goes through the
+  // message port command, which checks the permission and picks the connector (connector architecture, phase 2).
+  if (target.imUser) fail(`post refused: this agent's channel is the owner's direct conversation, a contact; use message send --to ${target.imUser} --via slack TEXT. Nothing changed.`);
   const result = ctx.store.beginProactive({
     id: randomUUID(),
     agent: ctx.slug,
@@ -678,7 +680,8 @@ function checkPayment(tail, parsed, deps) {
   if (!parsed) fail(`${tail[0] ? `unknown payment verb: ${tail[0]}` : 'payment requires request, show, list or cancel'}${again}`);
   const action = tail[0];
   if (action === 'request') {
-    if (!parsed.opts.provider) fail(`payment request requires --provider <name>${again}`);
+    if (parsed.opts.connector && parsed.opts.provider) fail(`payment request takes --connector <name>; --provider is its older spelling: give one${again}`);
+    if (!parsed.opts.connector && !parsed.opts.provider) fail(`payment request requires --connector <name>${again}`); // older spelling: --provider
     if (!parsed.opts.request) fail(`payment request requires --request <JSON>, or --request - to read it from stdin${again}`);
     if (!(deps.env || process.env).IGNITE_CONVERSATION) fail(`ignite payment request runs inside a turn: IGNITE_CONVERSATION is not set${again}`);
   }
@@ -714,7 +717,7 @@ function paymentLines(row, money) {
     `Key        ${r.key}${r.key_type ? ` (${r.key_type})` : ''}`,
     `Amount     ${money(row.amount_cents)}${row.fee_cents ? ` + fee ${money(row.fee_cents)}` : ''}`,
     `Note       ${row.note || '-'}`,
-    `Provider   ${row.provider} ${row.method}, id ${row.provider_id || '-'}${row.provider_status ? ` (${row.provider_status})` : ''}, receipt ${row.receipt_url || '-'}`,
+    `Connector  ${row.connector} ${row.method}, id ${row.connector_id || '-'}${row.connector_status ? ` (${row.connector_status})` : ''}, receipt ${row.receipt_url || '-'}`,
   ].join('\n');
 }
 
@@ -731,7 +734,7 @@ function cmdPayment(rest, ctx, flags, deps, { opts, positionals }) {
       const key = (deps.env || process.env).IGNITE_CONVERSATION;
       if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}\nNothing changed.`);
       const raw = opts.request === '-' ? (deps.stdin ?? fs.readFileSync(0, 'utf8')) : opts.request;
-      const row = publicRow(gate.request({ agent: ctx.slug, conversationKey: key, provider: opts.provider, ...paymentRequest(raw) }));
+      const row = publicRow(gate.request({ agent: ctx.slug, conversationKey: key, connector: opts.connector || opts.provider, ...paymentRequest(raw) })); // older spelling: --provider
       emit(deps, flags, row, `${row.id} ${row.state}: ${row.reason}\n`);
       return 0;
     }

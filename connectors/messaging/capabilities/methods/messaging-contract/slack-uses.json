@@ -1,12 +1,13 @@
 {
   "files": {
+    "cli.js": "6ac64219fa4d1d63d17062fe4b884bccd8ddb18ac31321217f0c8939557cc559",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
-    "daemon.js": "68de53744c6ad4d8b83b60ca9c06230b33b5817e76e4d8f1e4d5fb0f80a74f0f",
+    "daemon.js": "c1d2fde2d3798d79c30163ee7b70ad7693f61ad1dbd1e51174d2d7a803666e3b",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "outbox.js": "aa9a8a9e92a78fabdd1893964b727ccd09bb0245476119b635ecd85b9c6186e8",
-    "payment-panel.js": "e46cf54d9d63189c690a5cf0c0da6126332b1a116bceb354410bc22aa314f4c4",
-    "payment-runner.js": "f05b7aa674582177277a3caf56d33abe4255c043803248c62ff6e3b73b729fc5",
+    "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
+    "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
     "turn-loop.js": "99506f7745e869832dfa445a03e7bac30f191519313ecd3548b0bb49d83ba251"
   },
@@ -61,6 +62,12 @@
     },
     {
       "file": "cli.js",
+      "line": "if (target.imUser) fail(`post refused: this agent's channel is the owner's direct conversation, a contact; use message send --to ${target.imUser} --via slack TEXT. Nothing changed.`);",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "cli.js",
       "line": "workspace: ctx.config.slack.team,",
       "nth": 0,
       "kind": "config"
@@ -79,7 +86,7 @@
     },
     {
       "file": "config.js",
-      "line": "// slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset",
+      "line": "// slackToken(config, key)      \u2014 the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset",
       "nth": 0,
       "kind": "comment"
     },
@@ -499,19 +506,19 @@
     },
     {
       "file": "legend.js",
-      "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
+      "line": "// createLegend({ slack, log? }) \u2192 { handle(type, payload) }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "legend.js",
-      "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+      "line": "//   slack() \u2192 the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "legend.js",
-      "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+      "line": "//   slack() \u2192 the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
       "nth": 1,
       "kind": "comment"
     },
@@ -631,13 +638,13 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "payment-panel.js",
-      "line": "//   gate() → the Gate, or null when the config has no payments section; slack() → the Slack client;",
+      "line": "//   gate() \u2192 the Gate, or null when the config has no payments section; slack() \u2192 the Slack client;",
       "nth": 0,
       "kind": "comment"
     },
@@ -715,19 +722,19 @@
     },
     {
       "file": "payment-runner.js",
-      "line": "// createPaymentRunner({ gate, slack, store, providers, run?, env?, cwd, log?, kick?, now? }) → { step(), stop() }",
+      "line": "// createPaymentRunner({ gate, slack, store, connectors, run?, env?, cwd, log?, kick?, now? }) \u2192 { step(), stop() }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "payment-runner.js",
-      "line": "//   gate — the Gate. slack() → the Slack client, or null. store(slug) → that agent's open Store, or null.",
+      "line": "//   gate \u2014 the Gate. slack() \u2192 the Slack client, or null. store(slug) \u2192 that agent's open Store, or null.",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "payment-runner.js",
-      "line": "function createPaymentRunner({ gate, slack, store, providers, run = null, env = () => process.env, cwd, log = () => {}, kick = () => {}, now = Date.now } = {}) {",
+      "line": "function createPaymentRunner({ gate, slack, store, connectors, run = null, env = () => process.env, cwd, log = () => {}, kick = () => {}, now = Date.now } = {}) {",
       "nth": 0,
       "kind": "binding"
     },
@@ -745,13 +752,13 @@
     },
     {
       "file": "status-ticker.js",
-      "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) → { step(), stop() }",
+      "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) \u2192 { step(), stop() }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "status-ticker.js",
-      "line": "//   stores() → [{ slug, store }], the agents' open stores. slack() → the Slack client, or null while",
+      "line": "//   stores() \u2192 [{ slug, store }], the agents' open stores. slack() \u2192 the Slack client, or null while",
       "nth": 0,
       "kind": "comment"
     },

@@ -23,7 +23,7 @@ const { Gate } = require('./payments.js');
 const { createPaymentPanel } = require('./payment-panel.js');
 const { createLegend } = require('./legend.js');
 const { createPaymentRunner } = require('./payment-runner.js');
-const { startWebhook, loadProvider } = require('./payment-webhook.js');
+const { startWebhook, loadConnector } = require('./payment-webhook.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
@@ -283,21 +283,21 @@ async function startLocked(opts, workspace, held) {
     };
   }
 
-  // The payment gate's service side, on when the config has a payments section: each provider's withdrawal
-  // validation adapter (loaded by name from its connector), the owner's panel and buttons, the runner that
+  // The payment gate's service side, on when the config has a payments section: each payments connector's
+  // withdrawal validation adapter (loaded by name), the owner's panel and buttons, the runner that
   // resolves, posts, sends and reports, and the withdrawal validation listener in its own worker thread. The
   // gate opens first, so a ledger of an earlier release is upgraded before the listener reads it.
   const payments = paymentsConfig(config);
   const adapters = {};
-  for (const name of payments?.providers || []) {
+  for (const name of payments?.connectors || []) {
     try {
-      adapters[name] = loadProvider(name);
+      adapters[name] = loadConnector(name);
     } catch (error) {
-      log({ event: 'error', what: 'payment-provider', provider: name, message: error.message });
+      log({ event: 'error', what: 'payment-connector', connector: name, message: error.message });
     }
   }
 
-  // A check tool or a payment provider's tool is given the service's environment without its Slack
+  // A check tool or a payments connector's command is given the service's environment without its Slack
   // tokens and the payment webhook tokens.
   function toolEnv() {
     const env = { ...process.env };
@@ -331,7 +331,7 @@ async function startLocked(opts, workspace, held) {
     gate,
     slack: () => slack,
     store: (slug) => getStore(slug),
-    providers: Object.keys(adapters),
+    connectors: Object.keys(adapters),
     run: opts.paymentRun,
     env: toolEnv,
     cwd: workspace,
@@ -342,7 +342,7 @@ async function startLocked(opts, workspace, held) {
     workspace,
     timeZone: payments.timeZone,
     currency: payments.currency,
-    providers: Object.keys(adapters),
+    connectors: Object.keys(adapters),
     port: opts.webhookPort ?? payments.webhookPort,
     log,
   }) : null;

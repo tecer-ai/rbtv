@@ -1,8 +1,8 @@
 'use strict';
 
 // The payment gate: the one place that decides whether an agent's payment may leave the account.
-// Bank-neutral: a provider (a payment tool such as asaas) resolves the recipient, asks the gate,
-// and sends only what the gate approved; the gate never calls a bank.
+// Bank-neutral: a payments connector (asaas) resolves the recipient, the pay command asks the gate,
+// and Ignite sends only what the gate approved through that connector; the gate never calls a bank.
 //
 // API
 // new Gate({ workspace, now?, timeZone?, currency?, busyMs? }) — opens <installation>/.rbtv/runtime/ignite/payments.sqlite
@@ -14,7 +14,7 @@
 // close()
 // MODES off | automatic | case_by_case.
 // STATES pending | approved | sent | uncertain | refused | cancelled | failed. uncertain: the send may have paid (its
-//   answer was lost, or the service stopped mid-send); it counts toward the limits until the provider's status
+//   answer was lost, or the service stopped mid-send); it counts toward the limits until the connector's status
 //   proves it sent or failed.
 // PIN_RE — a PIN is 4 to 12 digits. settingsProblem(mode, limits) → null, or { field: 'mode', message }: a mode not in
 //   MODES, or automatic with no limit set. The panel's form checks with these, so each rule has one home.
@@ -24,13 +24,13 @@
 // MAX_LIMIT_CENTS — the largest limit, 99999999999 (999999999.99): the most canonicalAmount writes and parseAmount reads.
 // periodStart(period, at, zone?) — the start of the day, week (Monday) or month of `at` in zone (America/Sao_Paulo)
 // usage(at?) → { day, week, month }: cents (amount plus fee) approved, sent or uncertain since each period started
-// request({ agent, conversationKey, provider, method, recipient: { name, key, keyType, document, bank },
+// request({ agent, conversationKey, connector, method, recipient: { name, key, keyType, document, bank },
 //   amountCents, feeCents?, note, details? }) → the row. Decided at once, in one transaction:
 //   off → refused; case_by_case → pending; automatic → approved (decided_by rule) when the amount plus
 //   fee fits every limit that is set, else pending. Automatic with no limit set (never saved so) waits.
 // get(id) / list({ agent?, state?, limit? }) / pending() / listUncertain() / lastSent(n)
 // resolved(id, { name, document, bank, key, keyType, amountCents, feeCents }) — the recipient as the service read it
-//   from the provider, for a pending request or one the rule approved and not yet sent; a key, amount or fee that
+//   from the connector, for a pending request or one the rule approved and not yet sent; a key, amount or fee that
 //   differs from the request refuses it (decided_by rule). resolveFailed(id, reason) — the service could not read it;
 //   a pending request stays pending and can only be refused or withdrawn, a rule-approved one is refused. Both
 //   redraw a posted prompt. Nothing is sent before its recipient is resolved (due().toSend). → { changed, row }
@@ -45,17 +45,17 @@
 //   interaction: recorded once, so a replayed one changes nothing, a wrong PIN included. Only the key is kept.
 // cancel(id, agent) — the requesting agent withdraws its own pending request. → { changed, row }
 // claim(id) — marks an approved request as being sent; true once only, so it is sent at most once
-// sent(id, { providerId, providerStatus?, receiptUrl? }) — the provider took it
-// failed(id, reason) — the send did not happen; a request with a provider id or a withdrawal approval becomes
+// sent(id, { connectorId, connectorStatus?, receiptUrl? }) — the connector took it
+// failed(id, reason) — the send did not happen; a request with a connector id or a withdrawal approval becomes
 //   uncertain instead. uncertain(id, reason) — the send's outcome is unknown.
-// checked(id, { providerStatus, receiptUrl, final, ok, reason? }) — a later read of a sent operation;
+// checked(id, { connectorStatus, receiptUrl, final, ok, reason? }) — a later read of a sent operation;
 //   final and not ok fails the request
-// reconciled(id, { found, providerId?, providerStatus?, receiptUrl?, final?, ok?, reason? }) — a read of an uncertain
+// reconciled(id, { found, connectorId?, connectorStatus?, receiptUrl?, final?, ok?, reason? }) — a read of an uncertain
 //   request's operation: found, final and not ok fails it; found otherwise makes it sent; not found leaves it.
 // interrupted() — each request claimed but never recorded (the service stopped mid-send) becomes uncertain → ids
-// answer({ provider, method, reference, operationId, amountCents, recipientKey }) → { status, reason?, id }
+// answer({ connector, method, reference, operationId, amountCents, recipientKey }) → { status, reason?, id }
 //   The withdrawal validation, bank-neutral. The request is the one reference names or, with no reference, the
-//   one whose recorded provider id is operationId. APPROVED only for a request of that provider and method that
+//   one whose recorded connector id is operationId. APPROVED only for a request of that connector and method that
 //   the service claimed and is sending, has sent or is uncertain of; with the operation id the service recorded
 //   when it has one, the same amount, and the same recipient (a request found by its recorded operation id may
 //   pass with no recipient named). The first APPROVED records the operation, amount and recipient: a call
@@ -68,7 +68,8 @@
 // gate.money(cents) / formatMoney(cents, currency) → "R$ 1.234,56": the currency's symbol, Brazilian notation.
 // parseAmount(text) → cents or null ("99", "99.5", "99,50"; nine digits of whole units at most); canonicalAmount(cents)
 //   → "1234.56", the one form a saved amount is written back in, which parseAmount reads for every limit.
-// publicRow(row) — a request as the ignite payment verbs and the provider's tool read it.
+// publicRow(row) — a request as the ignite payment verbs, the pay command and the connector's command read it:
+//   connector, connector_id and connector_status among its fields.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -100,6 +101,22 @@ const ADDED_COLUMNS = Object.freeze([
   ['resolved_document', 'TEXT'], ['resolved_bank', 'TEXT'], ['resolved_amount_cents', 'INTEGER'],
   ['resolved_fee_cents', 'INTEGER'], ['resolve_error', 'TEXT'], ['answered_cents', 'INTEGER'], ['answered_recipient', 'TEXT'],
 ]);
+// The ledger's columns for the payments connector keep their first-release names while every field a user or
+// an agent sees says connector: rowOf maps each row read from the ledger, and every write names the column.
+// Loose end 7 of the connector architecture (projects/ignite-0.2.2/backlog/_loose-ends/connector-architecture-loose-ends.md):
+// rename the columns in the migration on open (ALTER TABLE … RENAME COLUMN, a copy of the database file written
+// first) the next time the ledger's schema changes for another reason.
+const COLUMNS = Object.freeze({ connector: 'provider', connector_id: 'provider_id', connector_status: 'provider_status' }); // loose end 7
+
+function rowOf(row) {
+  if (!row) return row;
+  const out = { ...row };
+  for (const [field, column] of Object.entries(COLUMNS)) {
+    out[field] = row[column];
+    delete out[column];
+  }
+  return out;
+}
 
 function ledgerPath(workspace) {
   return path.join(runtimeFolder(workspace), 'payments.sqlite');
@@ -208,12 +225,12 @@ function resolvable(row) {
 }
 
 function unchecked(row) {
-  if (row.resolve_error != null) return `Ignite could not check its recipient through ${row.provider} (${row.resolve_error})`;
-  if (row.resolved_at == null) return `Ignite has not checked its recipient through ${row.provider} yet`;
+  if (row.resolve_error != null) return `Ignite could not check its recipient through ${row.connector} (${row.resolve_error})`;
+  if (row.resolved_at == null) return `Ignite has not checked its recipient through ${row.connector} yet`;
   return null;
 }
 
-// Text a provider's tool returned, kept as given (one line, bounded); not refused like an agent's input.
+// Text a connector's command returned, kept as given (one line, bounded); not refused like an agent's input.
 function plain(value, max = 500) {
   if (value == null || value === '') return null;
   return String(value).replace(/[\r\n\0]+/g, ' ').trim().slice(0, max) || null;
@@ -234,7 +251,7 @@ function publicRow(row) {
     id: row.id,
     agent: row.agent,
     conversation: row.conversation_key,
-    provider: row.provider,
+    connector: row.connector,
     method: row.method,
     recipient: {
       name: row.recipient_name,
@@ -261,8 +278,8 @@ function publicRow(row) {
       fee_cents: row.resolved_fee_cents,
     },
     resolve_error: row.resolve_error,
-    provider_id: row.provider_id,
-    provider_status: row.provider_status,
+    connector_id: row.connector_id,
+    connector_status: row.connector_status,
     receipt_url: row.receipt_url,
     created_at: row.created_at,
   };
@@ -289,7 +306,7 @@ class Gate {
         id TEXT NOT NULL UNIQUE,
         agent TEXT NOT NULL,
         conversation_key TEXT NOT NULL,
-        provider TEXT NOT NULL,
+        provider TEXT NOT NULL, -- the connector; column name kept, loose end 7
         method TEXT NOT NULL,
         recipient_name TEXT,
         recipient_key TEXT NOT NULL,
@@ -314,8 +331,8 @@ class Gate {
         resolved_fee_cents INTEGER,
         resolve_error TEXT,
         claimed_at INTEGER,
-        provider_id TEXT,
-        provider_status TEXT,
+        provider_id TEXT, -- connector_id; column name kept, loose end 7
+        provider_status TEXT, -- connector_status; column name kept, loose end 7
         receipt_url TEXT,
         sent_at INTEGER,
         checked_at INTEGER,
@@ -455,8 +472,8 @@ class Gate {
     const agent = text(input.agent, 'agent', { required: true, max: 64 });
     if (!SLUG.test(agent)) refuse('agent must be a slug');
     const conversationKey = text(input.conversationKey, 'conversation', { required: true });
-    const provider = text(input.provider, 'provider', { required: true, max: 64 });
-    if (!SLUG.test(provider)) refuse('provider must be a slug');
+    const connector = text(input.connector, 'connector', { required: true, max: 64 });
+    if (!SLUG.test(connector)) refuse('connector must be a slug');
     const method = text(input.method, 'method', { required: true, max: 32 });
     if (!SLUG.test(method)) refuse('method must be a slug');
     const recipient = input.recipient && typeof input.recipient === 'object' ? input.recipient : {};
@@ -471,12 +488,11 @@ class Gate {
       const seq = this.db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM payments').get().seq;
       const id = `P-${String(seq).padStart(4, '0')}`;
       const decided = decision.state === 'pending' ? null : at;
-      this.db.prepare(`INSERT INTO payments
-        (seq, id, agent, conversation_key, provider, method, recipient_name, recipient_key, recipient_key_type,
-         recipient_document, recipient_bank, amount_cents, fee_cents, note, details, state, reason,
+      this.db.prepare(`INSERT INTO payments (seq, id, agent, conversation_key, provider, method, recipient_name,
+         recipient_key, recipient_key_type, recipient_document, recipient_bank, amount_cents, fee_cents, note, details, state, reason,
          decided_by, decided_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        seq, id, agent, conversationKey, provider, method,
+        seq, id, agent, conversationKey, connector, method,
         text(recipient.name, 'recipient name'), key, text(recipient.keyType, 'recipient key type', { max: 32 }),
         text(recipient.document, 'recipient document', { max: 64 }), text(recipient.bank, 'recipient bank'),
         amount, fee, note, JSON.stringify(details), decision.state, decision.reason,
@@ -487,7 +503,7 @@ class Gate {
   }
 
   _row(id) {
-    return this.db.prepare('SELECT * FROM payments WHERE id=?').get(id) || null;
+    return rowOf(this.db.prepare('SELECT * FROM payments WHERE id=?').get(id)) || null;
   }
 
   get(id) { return this._row(id); }
@@ -498,19 +514,19 @@ class Gate {
     if (agent) { where.push('agent=?'); args.push(agent); }
     if (state) { where.push('state=?'); args.push(state); }
     return this.db.prepare(`SELECT * FROM payments ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY seq DESC LIMIT ?`).all(...args, limit);
+      ORDER BY seq DESC LIMIT ?`).all(...args, limit).map(rowOf);
   }
 
   pending() {
-    return this.db.prepare("SELECT * FROM payments WHERE state='pending' ORDER BY seq").all();
+    return this.db.prepare("SELECT * FROM payments WHERE state='pending' ORDER BY seq").all().map(rowOf);
   }
 
   listUncertain() {
-    return this.db.prepare("SELECT * FROM payments WHERE state='uncertain' ORDER BY seq").all();
+    return this.db.prepare("SELECT * FROM payments WHERE state='uncertain' ORDER BY seq").all().map(rowOf);
   }
 
   lastSent(n = 10) {
-    return this.db.prepare("SELECT * FROM payments WHERE state='sent' ORDER BY sent_at DESC, seq DESC LIMIT ?").all(n);
+    return this.db.prepare("SELECT * FROM payments WHERE state='sent' ORDER BY sent_at DESC, seq DESC LIMIT ?").all(n).map(rowOf);
   }
 
   _move(id, from, to, fields = {}, where = '') {
@@ -541,7 +557,7 @@ class Gate {
       if (!differs.length) return { changed: true, row: this._row(id) };
       return this._move(id, row.state, 'refused', {
         decided_by: 'rule', decided_at: at,
-        reason: `Ignite's own check through ${row.provider} differs from the request: ${differs.join('; ')}`.slice(0, 500),
+        reason: `Ignite's own check through ${row.connector} differs from the request: ${differs.join('; ')}`.slice(0, 500),
       });
     });
   }
@@ -619,10 +635,10 @@ class Gate {
       WHERE id=? AND state='approved' AND claimed_at IS NULL`).run(this.now(), this.now(), id).changes === 1;
   }
 
-  sent(id, { providerId, providerStatus = null, receiptUrl = null } = {}) {
-    if (!providerId) throw new Error('provider id required');
+  sent(id, { connectorId, connectorStatus = null, receiptUrl = null } = {}) {
+    if (!connectorId) throw new Error('connector id required');
     return this._move(id, 'approved', 'sent', {
-      provider_id: String(providerId), provider_status: providerStatus, receipt_url: receiptUrl, sent_at: this.now(),
+      [COLUMNS.connector_id]: String(connectorId), [COLUMNS.connector_status]: connectorStatus, receipt_url: receiptUrl, sent_at: this.now(),
     }, 'AND claimed_at IS NOT NULL');
   }
 
@@ -631,8 +647,8 @@ class Gate {
       const row = this._row(id);
       if (!row || !['approved', 'sent'].includes(row.state)) return { changed: false, row };
       const why = String(reason || 'failed').slice(0, 500);
-      // A provider id or a withdrawal approval means the money may have left: only the provider's status proves not.
-      if (row.provider_id || row.answered_at != null) return this._move(id, row.state, 'uncertain', { reason: why });
+      // A connector id or a withdrawal approval means the money may have left: only the connector's status proves not.
+      if (row.connector_id || row.answered_at != null) return this._move(id, row.state, 'uncertain', { reason: why });
       return this._move(id, row.state, 'failed', { reason: why });
     });
   }
@@ -642,21 +658,21 @@ class Gate {
       'AND claimed_at IS NOT NULL');
   }
 
-  checked(id, { providerStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
+  checked(id, { connectorStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
     return this.transaction(() => {
       const row = this._row(id);
       if (!row || row.state !== 'sent') return { changed: false, row };
       this.db.prepare(`UPDATE payments SET provider_status=COALESCE(?, provider_status),
         receipt_url=COALESCE(?, receipt_url), checked_at=?, check_final=?, updated_at=? WHERE id=?`)
-        .run(providerStatus, receiptUrl, this.now(), final ? 1 : 0, this.now(), id);
+        .run(connectorStatus, receiptUrl, this.now(), final ? 1 : 0, this.now(), id);
       if (final && !ok) {
-        return this._move(id, 'sent', 'failed', { reason: reason || `the provider ended it as ${providerStatus}` });
+        return this._move(id, 'sent', 'failed', { reason: reason || `the bank ended it as ${connectorStatus}` });
       }
       return { changed: true, row: this._row(id) };
     });
   }
 
-  reconciled(id, { found = false, providerId = null, providerStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
+  reconciled(id, { found = false, connectorId = null, connectorStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
     return this.transaction(() => {
       const row = this._row(id);
       if (!row || row.state !== 'uncertain') return { changed: false, row };
@@ -665,15 +681,15 @@ class Gate {
         this.db.prepare('UPDATE payments SET checked_at=?, updated_at=? WHERE id=?').run(at, at, id);
         return { changed: false, row: this._row(id) };
       }
-      const operation = String(providerId || row.provider_id || row.answered_operation);
+      const operation = String(connectorId || row.connector_id || row.answered_operation);
       if (final && !ok) {
         return this._move(id, 'uncertain', 'failed', {
-          provider_id: operation, provider_status: providerStatus, checked_at: at, check_final: 1,
-          reason: reason || `the provider ended it as ${providerStatus}`,
+          [COLUMNS.connector_id]: operation, [COLUMNS.connector_status]: connectorStatus, checked_at: at, check_final: 1,
+          reason: reason || `the bank ended it as ${connectorStatus}`,
         });
       }
       return this._move(id, 'uncertain', 'sent', {
-        provider_id: operation, provider_status: providerStatus, receipt_url: receiptUrl || row.receipt_url,
+        [COLUMNS.connector_id]: operation, [COLUMNS.connector_status]: connectorStatus, receipt_url: receiptUrl || row.receipt_url,
         sent_at: at, checked_at: at, check_final: final ? 1 : 0,
         reason: row.decided_by === 'owner' ? 'approved by the owner' : 'within the limits',
       });
@@ -684,13 +700,13 @@ class Gate {
     const rows = this.db.prepare("SELECT id FROM payments WHERE state='approved' AND claimed_at IS NOT NULL").all();
     for (const { id } of rows) {
       this._move(id, 'approved', 'uncertain', {
-        reason: 'interrupted: Ignite stopped while sending it, so it may have been paid; it counts toward the limits until Ignite reads it at the provider',
+        reason: 'interrupted: Ignite stopped while sending it, so it may have been paid; it counts toward the limits until Ignite reads it at the bank',
       });
     }
     return rows.map((row) => row.id);
   }
 
-  answer({ provider, method, reference, operationId, amountCents, recipientKey } = {}) {
+  answer({ connector, method, reference, operationId, amountCents, recipientKey } = {}) {
     const operation = operationId == null || operationId === '' ? null : String(operationId);
     if (!reference && !operation) {
       return { status: 'REFUSED', reason: 'the operation names no request and has no id: it did not pass the payment gate', id: null };
@@ -698,9 +714,9 @@ class Gate {
     return this.transaction(() => {
       const row = reference
         ? this._row(String(reference))
-        : this.db.prepare('SELECT * FROM payments WHERE provider=? AND provider_id=?').get(provider, operation) || null;
+        : rowOf(this.db.prepare('SELECT * FROM payments WHERE provider=? AND provider_id=?').get(connector, operation)) || null;
       const no = (reason) => ({ status: 'REFUSED', reason, id: row?.id || null });
-      if (!row || row.provider !== provider) {
+      if (!row || row.connector !== connector) {
         return no(reference ? `unknown request ${reference}`
           : `no request names operation ${operation}: it did not pass the payment gate, or Ignite has not recorded its id yet`);
       }
@@ -714,14 +730,14 @@ class Gate {
       }
       if (!HOLDING.includes(row.state)) return no(`${row.id} is ${row.state}`);
       if (row.claimed_at == null) return no(`${row.id} is approved but Ignite has not sent it`);
-      if (row.provider_id && operation !== row.provider_id) {
-        return no(`${row.id} was sent as operation ${row.provider_id}, not ${operation}`);
+      if (row.connector_id && operation !== row.connector_id) {
+        return no(`${row.id} was sent as operation ${row.connector_id}, not ${operation}`);
       }
       if (amountCents !== row.amount_cents) {
         return no(`${row.id} approved ${this.money(row.amount_cents)}, the operation is ${this.money(amountCents)}`);
       }
       if (recipient == null) {
-        if (!row.provider_id) return no(`the operation names no recipient, and ${row.id} has no operation id to match it by`);
+        if (!row.connector_id) return no(`the operation names no recipient, and ${row.id} has no operation id to match it by`);
       } else if (recipient !== canonicalKey(row.recipient_key)) {
         return no(`${row.id} approved another recipient`);
       }
@@ -732,7 +748,7 @@ class Gate {
   }
 
   due({ now = this.now() } = {}) {
-    const all = (sql, ...args) => this.db.prepare(sql).all(...args);
+    const all = (sql, ...args) => this.db.prepare(sql).all(...args).map(rowOf);
     return {
       resolve: all(`SELECT * FROM payments WHERE (state='pending' OR (state='approved' AND decided_by='rule'))
         AND resolved_at IS NULL AND resolve_error IS NULL AND claimed_at IS NULL ORDER BY seq`),
@@ -743,7 +759,7 @@ class Gate {
       // A rule approval waits for its check; an owner approval made before the check reaches send and fails there.
       toSend: all(`SELECT * FROM payments WHERE state='approved' AND claimed_at IS NULL
         AND (resolved_at IS NOT NULL OR decided_by != 'rule') ORDER BY seq`),
-      // Every 5 s for the first 10 minutes, then once a minute until the provider gives a final status.
+      // Every 5 s for the first 10 minutes, then once a minute until the connector gives a final status.
       toCheck: all(`SELECT * FROM payments WHERE state='sent' AND check_final=0
         AND COALESCE(checked_at, sent_at) <= CASE WHEN sent_at>=? THEN ? ELSE ? END ORDER BY seq`,
       now - CHECK_FOR_MS, now - CHECK_EVERY_MS, now - RECONCILE_EVERY_MS),

@@ -42,7 +42,7 @@ test('a payments adapter the loader refuses is a defect with the loader\'s reaso
   });
   const { defects } = check('probepay', { root });
   assert.equal(defects.length, 1);
-  assert.match(defects[0], /^payments: payment provider probepay: .*must export path, header \(lowercase\), tokenEnv and read\(body\)$/);
+  assert.match(defects[0], /^payments: payments connector probepay: .*must export path, header \(lowercase\), tokenEnv and read\(body\)$/);
 });
 
 test('an operation of another port exported from an adapter is a defect', () => {

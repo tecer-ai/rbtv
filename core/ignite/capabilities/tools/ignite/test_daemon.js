@@ -243,7 +243,7 @@ test('with a payments section the service answers each withdrawal validation wit
     });
     assert.deepEqual(socket.onInteraction.ack('slash_commands', { command: '/payments', user_id: 'UOTHER', team_id: 'T1' }),
       { text: 'Only the owner can open /payments. Nothing changed.' });
-    const row = gate.request({ agent: 'master', conversationKey: 'T1:D1:1.1', provider: 'asaas', method: 'pix',
+    const row = gate.request({ agent: 'master', conversationKey: 'T1:D1:1.1', connector: 'asaas', method: 'pix',
       recipient: { name: 'KENU', key: 'kenu@example.com' }, amountCents: 100, note: 'test' });
     assert.equal(row.state, 'approved');
     await waitFor(() => gate.get(row.id).state === 'sent');

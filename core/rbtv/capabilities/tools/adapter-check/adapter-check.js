@@ -6,7 +6,7 @@
 // For each port the record names in `type` and `serves`, the adapter file that method names must
 // load and export the port's shape:
 //   payments        Ignite's own loader decides (core/ignite/capabilities/tools/ignite/payment-webhook.js
-//                   loadProvider): path, header (lowercase), tokenEnv (a variable name) and read(body).
+//                   loadConnector): path, header (lowercase), tokenEnv (a variable name) and read(body).
 //                   The record's payment.* operations are covered by that validation.
 //   any other port  `operations`, an object with one function per operation the record `provides`
 //                   for that port, keyed by the operation's name; no operation of another port
@@ -88,8 +88,8 @@ function check(name, { root = REPO } = {}) {
     const file = path.join(lib, adapterFile(port));
     if (port === 'payments') {
       try {
-        const { loadProvider } = require(LOADER);
-        const adapter = loadProvider(name, { root });
+        const { loadConnector } = require(LOADER);
+        const adapter = loadConnector(name, { root });
         ports.push({ port, file: shown(file), exports: `path ${adapter.path}, header ${adapter.header}, tokenEnv ${adapter.tokenEnv}, read(body)` });
       } catch (error) {
         defects.push(`${port}: ${error.message}`);

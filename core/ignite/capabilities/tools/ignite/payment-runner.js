@@ -1,38 +1,38 @@
 'use strict';
 
 // The waking service's side of the payment gate: it resolves each pending request's recipient through its
-// provider and posts it to its agent's thread, sends each approved request through its provider's tool,
+// connector and posts it to its agent's thread, sends each approved request through its connector's command,
 // follows the sent operation, reconciles a send whose outcome was lost, and tells the requesting
-// conversation the outcome. No model takes part: the service runs the provider's tool with the ledger's
-// exact fields.
+// conversation the outcome. No model takes part: the service runs the connector's command directly
+// (`<connector> --json pay resolve|execute|status <id>`, the request on stdin) with the ledger's exact fields.
 //
 // API
-// createPaymentRunner({ gate, slack, store, providers, run?, env?, cwd, log?, kick?, now? }) → { step(), stop() }
+// createPaymentRunner({ gate, slack, store, connectors, run?, env?, cwd, log?, kick?, now? }) → { step(), stop() }
 //   gate — the Gate. slack() → the Slack client, or null. store(slug) → that agent's open Store, or null.
-//   providers — the provider names Ignite may send through: those with a withdrawal validation adapter
-//   (payment-webhook.js loadProvider), each also the name of its tool on PATH. kick(slug) asks the service to
+//   connectors — the connector names Ignite may send through: those with a withdrawal validation adapter
+//   (payment-webhook.js loadConnector), each also the name of its command on PATH. kick(slug) asks the service to
 //   run that agent's queue and outbox.
-//   run(command, args, input) → Promise<{ code, stdout, stderr }>; by default the tool is started with
+//   run(command, args, input) → Promise<{ code, stdout, stderr }>; by default the command is started with
 //   execFile, the request's JSON on stdin, env() as its environment and cwd the installation, for at
 //   most 60 s.
 //   step() → Promise that never rejects; a pass already running makes the call return at once. A pass:
-//   1. resolves each pending request: `<provider> --json pay resolve <id>` with the request (payments.js
+//   1. resolves each pending request: `<connector> --json pay resolve <id>` with the request (payments.js
 //      publicRow) on stdin gives the recipient as the bank names it, recorded with gate.resolved (a key, amount
 //      or fee that differs refuses the request); after 3 failed tries 30 s apart, gate.resolveFailed;
 //   2. posts each pending request resolved or failed and without a message to its conversation's thread, with
 //      Approve and Refuse, or Refuse alone when the resolution failed (payment-panel.js promptBlocks); a message
 //      Slack took that the ledger could not record (it was busy) is recorded on a later pass, every 30 s, and never
 //      posted again;
-//   3. sends each approved request not yet claimed: claims it (once only), runs `<provider> --json pay execute <id>`
-//      with the request on stdin, and records sent, with the provider's id, status and receipt; failed only when
-//      the tool answers {"created": false} (the bank refused it, or it was never called) or the program could not be
+//   3. sends each approved request not yet claimed: claims it (once only), runs `<connector> --json pay execute <id>`
+//      with the request on stdin, and records sent, with the connector's id (connector_id, or provider_id, its older spelling),
+//      status and receipt; failed only when the command answers {"created": false} (the bank refused it, or it was never called) or the program could not be
 //      started (Node refused the launch, at once or in its callback); otherwise (a timeout, a crash, no operation id)
 //      uncertain, which keeps counting toward the limits. An outcome the ledger could not record (it was busy) is
 //      recorded on a later pass, every 30 s, without running the tool again. A request the owner approved
 //      while its recipient was unchecked (payments.js unchecked; a ledger of an earlier release can hold one) is
 //      never run: it fails;
-//   4. reads each sent operation with `<provider> --json pay status <id>` every 5 s for its first 10 minutes, then
-//      every 60 s, until the tool calls it final; final and not ok fails the request;
+//   4. reads each sent operation with `<connector> --json pay status <id>` every 5 s for its first 10 minutes, then
+//      every 60 s, until the command calls it final; final and not ok fails the request;
 //   5. reconciles each uncertain request with an operation id (its own, or the one the withdrawal validation
 //      approved) with `pay status` every 60 s: found, it becomes sent, or failed when final and not ok;
 //   6. updates each request message whose state changed: the buttons go once it is not pending;
@@ -106,20 +106,20 @@ function outcomeText(gate, row) {
   const to = `${gate.money(row.amount_cents + row.fee_cents)} to ${name} (${keyLabel(row.method)} ${row.recipient_key})`;
   if (row.state === 'sent') {
     const receipt = row.receipt_url ? `receipt ${row.receipt_url}` : 'no receipt yet';
-    return `Payment ${row.id} sent: ${to}. ${row.provider} id ${row.provider_id}, status ${row.provider_status || 'unknown'}, ${receipt}.`;
+    return `Payment ${row.id} sent: ${to}. ${row.connector} id ${row.connector_id}, status ${row.connector_status || 'unknown'}, ${receipt}.`;
   }
   if (row.state === 'refused') {
     if (row.decided_by === 'owner') return `Payment ${row.id} was refused by the owner: ${to}. Nothing was sent.`;
     return `Payment ${row.id} was refused: ${to}. ${row.reason}. Nothing was sent.`;
   }
   if (row.state === 'uncertain') {
-    return `Payment ${row.id} may have been paid: ${to}. ${row.reason}. It counts toward the limits until Ignite reads it at ${row.provider}; this conversation hears the outcome. Do not ask again before checking the statement.`;
+    return `Payment ${row.id} may have been paid: ${to}. ${row.reason}. It counts toward the limits until Ignite reads it at ${row.connector}; this conversation hears the outcome. Do not ask again before checking the statement.`;
   }
   return `Payment ${row.id} failed: ${to}. ${row.reason}`;
 }
 
-function createPaymentRunner({ gate, slack, store, providers, run = null, env = () => process.env, cwd, log = () => {}, kick = () => {}, now = Date.now } = {}) {
-  const allowed = new Set(providers || []);
+function createPaymentRunner({ gate, slack, store, connectors, run = null, env = () => process.env, cwd, log = () => {}, kick = () => {}, now = Date.now } = {}) {
+  const allowed = new Set(connectors || []);
   const launch = run || defaultRun({ env, cwd });
   const nextTry = new Map();
   const resolveTries = new Map();
@@ -148,7 +148,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
 
   async function tool(row, verb, input = publicRow(row)) {
     try {
-      return await launch(row.provider, ['--json', 'pay', verb, row.id], JSON.stringify(input));
+      return await launch(row.connector, ['--json', 'pay', verb, row.id], JSON.stringify(input));
     } catch (error) {
       return { code: 1, stdout: '', stderr: error.message };
     }
@@ -156,8 +156,8 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
 
   async function resolve(row) {
     if (!due(`resolve:${row.id}`)) return;
-    if (!allowed.has(row.provider)) {
-      gate.resolveFailed(row.id, `Ignite does not send through ${row.provider}: it has no withdrawal validation for it`);
+    if (!allowed.has(row.connector)) {
+      gate.resolveFailed(row.id, `Ignite does not send through ${row.connector}: it has no withdrawal validation for it`);
       return;
     }
     const result = await tool(row, 'resolve');
@@ -219,8 +219,8 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   }
 
   async function send(row) {
-    if (!allowed.has(row.provider)) {
-      gate.failed(row.id, `Ignite does not send through ${row.provider}: it has no withdrawal validation for it`);
+    if (!allowed.has(row.connector)) {
+      gate.failed(row.id, `Ignite does not send through ${row.connector}: it has no withdrawal validation for it`);
       return;
     }
     const why = unchecked(row);
@@ -230,7 +230,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       return;
     }
     if (!gate.claim(row.id)) return;
-    note({ action: 'send', id: row.id, provider: row.provider });
+    note({ action: 'send', id: row.id, connector: row.connector });
     const result = await tool(row, 'execute', publicRow(gate.get(row.id)));
     settle(row.id, sendOutcome(row, result));
   }
@@ -238,22 +238,23 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   // What a send's run means for its request: sent, failed (nothing can have been paid) or uncertain.
   function sendOutcome(row, result) {
     const body = lastJson(result.stdout);
-    if (result.code === 0 && body?.provider_id) {
+    const operation = body?.connector_id ?? body?.provider_id; // provider_id: the older spelling a connector may still print
+    if (result.code === 0 && operation) {
       return {
-        state: 'sent', fields: { providerId: body.provider_id, providerStatus: body.status || null, receiptUrl: body.receipt_url || null },
-        log: { action: 'sent', id: row.id, providerId: String(body.provider_id) },
+        state: 'sent', fields: { connectorId: operation, connectorStatus: body.status || null, receiptUrl: body.receipt_url || null },
+        log: { action: 'sent', id: row.id, connectorId: String(operation) },
       };
     }
     if (result.notStarted) {
-      const reason = `Not sent: Ignite could not start ${row.provider}: ${reasonOf(result)}`.slice(0, 300);
+      const reason = `Not sent: Ignite could not start ${row.connector}: ${reasonOf(result)}`.slice(0, 300);
       return { state: 'failed', reason, log: { action: 'send-not-started', id: row.id, reason } };
     }
     if (body?.created === false) {
       const reason = body.reason ? String(body.reason).slice(0, 300) : reasonOf(result);
       return { state: 'failed', reason, log: { action: 'send-failed', id: row.id, reason } };
     }
-    const why = result.code === 0 ? `${row.provider} returned no operation id` : reasonOf(result);
-    return { state: 'uncertain', reason: `Ignite does not know whether ${row.provider} made it: ${why}`, log: { action: 'send-uncertain', id: row.id, reason: why } };
+    const why = result.code === 0 ? `${row.connector} returned no operation id` : reasonOf(result);
+    return { state: 'uncertain', reason: `Ignite does not know whether ${row.connector} made it: ${why}`, log: { action: 'send-uncertain', id: row.id, reason: why } };
   }
 
   // Records a send's outcome. A ledger that refuses the write (busy) keeps the outcome here, recorded again on a
@@ -271,7 +272,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   }
 
   async function check(row) {
-    if (!allowed.has(row.provider)) return;
+    if (!allowed.has(row.connector)) return;
     const result = await tool(row, 'status');
     const body = result.code === 0 ? lastJson(result.stdout) : null;
     if (!body) {
@@ -280,15 +281,15 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       return;
     }
     gate.checked(row.id, {
-      providerStatus: body.status || null, receiptUrl: body.receipt_url || null,
+      connectorStatus: body.status || null, receiptUrl: body.receipt_url || null,
       final: Boolean(body.final), ok: body.ok !== false, reason: body.reason || null,
     });
   }
 
   async function reconcile(row) {
-    if (!allowed.has(row.provider)) return;
-    const operation = row.provider_id || row.answered_operation;
-    const result = await tool(row, 'status', { ...publicRow(row), provider_id: operation });
+    if (!allowed.has(row.connector)) return;
+    const operation = row.connector_id || row.answered_operation;
+    const result = await tool(row, 'status', { ...publicRow(row), connector_id: operation });
     const body = result.code === 0 ? lastJson(result.stdout) : null;
     if (!body?.status) {
       gate.reconciled(row.id, { found: false });
@@ -296,10 +297,10 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       return;
     }
     const { row: after } = gate.reconciled(row.id, {
-      found: true, providerId: operation, providerStatus: body.status, receiptUrl: body.receipt_url || null,
+      found: true, connectorId: operation, connectorStatus: body.status, receiptUrl: body.receipt_url || null,
       final: Boolean(body.final), ok: body.ok !== false, reason: body.reason || null,
     });
-    note({ action: 'reconciled', id: row.id, state: after?.state || null, providerStatus: body.status });
+    note({ action: 'reconciled', id: row.id, state: after?.state || null, connectorStatus: body.status });
   }
 
   async function showStates(rows) {

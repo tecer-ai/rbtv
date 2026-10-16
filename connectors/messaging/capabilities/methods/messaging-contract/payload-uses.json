@@ -1,13 +1,13 @@
 {
   "files": {
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "payment-panel.js": "e46cf54d9d63189c690a5cf0c0da6126332b1a116bceb354410bc22aa314f4c4",
-    "payment-runner.js": "f05b7aa674582177277a3caf56d33abe4255c043803248c62ff6e3b73b729fc5"
+    "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
+    "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a"
   },
   "uses": [
     {
       "file": "legend.js",
-      "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
+      "line": "// createLegend({ slack, log? }) \u2192 { handle(type, payload) }",
       "nth": 0,
       "reads": []
     },
@@ -35,19 +35,19 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "reads": []
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
       "nth": 1,
       "reads": []
     },
     {
       "file": "payment-panel.js",
-      "line": "// interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action",
+      "line": "// interactionKey(payload) \u2192 the key an interaction is recorded by: a form's view id and hash, a button's action",
       "nth": 0,
       "reads": []
     },

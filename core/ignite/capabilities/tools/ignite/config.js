@@ -14,9 +14,10 @@
 // MIGRATION_COMMAND            — ignite runtime migrate
 // envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
-// paymentsConfig(config)       — { webhookPort, providers, timeZone, currency } with their defaults (8787, ['asaas'],
+// paymentsConfig(config)       — { webhookPort, connectors, timeZone, currency } with their defaults (8787, ['asaas'],
 //                                America/Sao_Paulo, BRL) when the config has a payments section, which turns the payment
-//                                gate's service side on; else null
+//                                gate's service side on; else null. payments.providers, the older spelling of
+//                                payments.connectors, is read as connectors; both given is refused
 // timeZoneProblem(zone) / currencyProblem(code) — null for an IANA time zone / an ISO 4217 code with two decimals,
 //                                else the reason; the one check of both, used here and by the payment gate
 
@@ -28,8 +29,8 @@ const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments'];
 const LEGACY_CONFIG_KEY = 'dreamer';
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
-const PAYMENT_KEYS = ['webhookPort', 'providers', 'timeZone', 'currency'];
-const PAYMENT_DEFAULTS = Object.freeze({ webhookPort: 8787, providers: ['asaas'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
+const PAYMENT_KEYS = ['webhookPort', 'connectors', 'providers', 'timeZone', 'currency']; // providers: the older spelling of connectors
+const PAYMENT_DEFAULTS = Object.freeze({ webhookPort: 8787, connectors: ['asaas'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -114,9 +115,14 @@ function validate(raw) {
     if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
       throw new Error('payments.webhookPort must be a port number from 1 to 65535');
     }
-    const providers = raw.payments.providers;
-    if (providers !== undefined && (!Array.isArray(providers) || !providers.every((name) => typeof name === 'string' && SLUG.test(name)))) {
-      throw new Error('payments.providers must be a list of provider names, such as ["asaas"]');
+    if (raw.payments.connectors !== undefined && raw.payments.providers !== undefined) { // older spelling
+      throw new Error('payments.connectors replaces payments.providers: give one'); // older spelling
+    }
+    for (const key of ['connectors', 'providers']) { // providers: the older spelling
+      const list = raw.payments[key];
+      if (list !== undefined && (!Array.isArray(list) || !list.every((name) => typeof name === 'string' && SLUG.test(name)))) {
+        throw new Error(`payments.${key} must be a list of connector names, such as ["asaas"]`);
+      }
     }
     const zone = raw.payments.timeZone;
     if (zone !== undefined && timeZoneProblem(zone)) throw new Error(`payments.timeZone ${timeZoneProblem(zone)}`);
@@ -148,7 +154,9 @@ function currencyProblem(code) {
 
 function paymentsConfig(config) {
   if (!config?.payments) return null;
-  return { ...PAYMENT_DEFAULTS, ...config.payments };
+  const { providers, ...section } = config.payments; // older spelling of connectors
+  if (providers !== undefined && section.connectors === undefined) section.connectors = providers; // older spelling
+  return { ...PAYMENT_DEFAULTS, ...section };
 }
 
 function loadConfig(workspace) {

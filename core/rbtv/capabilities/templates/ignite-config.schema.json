@@ -125,8 +125,16 @@
           "minimum": 1,
           "maximum": 65535
         },
+        "connectors": {
+          "description": "The payments connectors Ignite sends through, by name. Each is a connector whose capabilities/tools/<name>/lib/withdrawal-validation.js Ignite loads: the bank's webhook path, token header and token variable, and how its body reads. [\"asaas\"] when absent.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          }
+        },
         "providers": {
-          "description": "The payment providers Ignite sends through, by name. Each is a connector whose capabilities/tools/<name>/lib/withdrawal-validation.js Ignite loads: the bank's webhook path, token header and token variable, and how its body reads. [\"asaas\"] when absent.",
+          "description": "The older spelling of connectors, read as connectors and accepted until the next deploy; give one of the two.",
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" }
         },
