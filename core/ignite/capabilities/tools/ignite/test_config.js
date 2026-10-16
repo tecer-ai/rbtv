@@ -182,6 +182,31 @@ test('envValue prefers the OS environment, then .env', (dir) => {
   });
 });
 
+test('envValue reads ordinary and exported assignments literally, with process precedence', (dir) => {
+  const name = `IGNITE_LITERAL_ENV_${process.pid}`;
+  const envDir = path.join(dir, '.rbtv', 'config', 'env');
+  fs.mkdirSync(envDir, { recursive: true });
+  const file = path.join(envDir, '.env');
+  const literal = '$UNEXPANDED-`literal`-$(literal)=value#literal';
+  without(name, () => {
+    for (const prefix of ['', 'export ', '  export\t']) {
+      for (const quote of ['', '"', "'"]) {
+        fs.writeFileSync(file, `# ${name}=ignored\r\nOTHER=value\r\n${prefix}${name} = ${quote}${literal}${quote}\r\n`, 'utf8');
+        assert.ok(envValue(dir, name) === literal, 'assignment contents must remain literal');
+      }
+    }
+    fs.writeFileSync(file, `${name}=\nexport ${name}=''\nexport ${name}=' ${literal} '\n`, 'utf8');
+    assert.ok(envValue(dir, name) === ` ${literal} `, 'skip empty assignments and preserve quoted spaces');
+    fs.writeFileSync(file, `export ${name}='\n`, 'utf8');
+    assert.ok(envValue(dir, name) === "'", 'a lone quote remains literal');
+    process.env[name] = '$PROCESS-`literal`';
+    assert.ok(envValue(dir, name) === process.env[name], 'the process environment wins');
+    process.env[name] = ' $PROCESS-`literal` ';
+    assert.ok(envValue(dir, name) === process.env[name], 'the generic reader keeps process values intact');
+    assert.ok(envValue(dir, name, { [name]: process.env[name].trim() }) === '$PROCESS-`literal`', 'callers may supply their normalized environment');
+  });
+});
+
 test('unset token names the variable and not a value', (dir) => {
   const appName = `IGNITE_W5A_APP_${process.pid}`;
   const botName = `IGNITE_W5A_BOT_${process.pid}`;

@@ -12,7 +12,7 @@
 // resolveIgniteRuntime(home)   — those paths, or a refusal when the agent root still holds them
 // storePath(config, slug)      — resolveIgniteRuntime(agentHome).database
 // MIGRATION_COMMAND            — ignite runtime migrate
-// envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
+// envValue(workspace, name, env?) — a variable's value: process/supplied environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
 // paymentsConfig(config)       — { webhookPort, connectors, timeZone, currency } with their defaults (8787, ['asaas'],
 //                                America/Sao_Paulo, BRL) when the config has a payments section, which turns the payment
@@ -258,20 +258,22 @@ function storePath(config, slug) {
   return resolveIgniteRuntime(agentHome(config, slug), { workspace: config.workspace, slug }).database;
 }
 
-function envValue(workspace, name) {
-  if (process.env[name]) return process.env[name];
+// Ordinary/exported assignments and matching quotes are read literally, first nonempty value.
+// An explicit environment lets callers preserve their process-value normalization.
+function envValue(workspace, name, env = process.env) {
+  if (env[name]) return env[name];
   let text;
   try { text = fs.readFileSync(path.join(workspace, '.rbtv', 'config', 'env', '.env'), 'utf8'); } catch { return null; }
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
     const eq = trimmed.indexOf('=');
-    if (eq < 0 || trimmed.slice(0, eq).trim() !== name) continue;
+    if (eq < 0 || trimmed.slice(0, eq).trim().replace(/^export\s+/, '') !== name) continue;
     let value = trimmed.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
       value = value.slice(1, -1);
     }
-    return value || null;
+    if (value) return value;
   }
   return null;
 }

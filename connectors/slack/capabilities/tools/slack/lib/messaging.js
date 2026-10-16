@@ -34,6 +34,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { envValue } = require('../../../../../../core/ignite/capabilities/tools/ignite/config.js');
 
 const API = process.env.SLACK_API_URL || 'https://slack.com/api';
 const TOKEN_ENV = 'SLACK_BOT_TOKEN';
@@ -57,20 +58,10 @@ function installation(start = process.cwd()) {
 }
 
 function token() {
-  const fromEnv = process.env[TOKEN_ENV];
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
   const root = installation(process.env.RBTV_AGENT_HOME || process.cwd()) || installation();
-  const file = root ? path.join(root, '.rbtv', 'config', 'env', '.env') : null;
-  if (file && fs.existsSync(file)) {
-    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-      const match = line.match(new RegExp(`^\\s*(?:export\\s+)?${TOKEN_ENV}\\s*=\\s*(.*?)\\s*$`));
-      if (match) {
-        let value = match[1];
-        if (value.length > 1 && value[0] === value.at(-1) && `'"`.includes(value[0])) value = value.slice(1, -1);
-        if (value) return value;
-      }
-    }
-  }
+  // Keep the connector's process-token trimming; file values retain their literal quoted contents.
+  const value = envValue(root, TOKEN_ENV, { [TOKEN_ENV]: process.env[TOKEN_ENV]?.trim() });
+  if (value) return value;
   throw fail(null, `slack: ${TOKEN_ENV} is not set in the environment or .rbtv/config/env/.env`);
 }
 

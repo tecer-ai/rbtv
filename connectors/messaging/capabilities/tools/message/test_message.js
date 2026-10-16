@@ -893,6 +893,102 @@ test('real Slack partial reply preserves the delivered text and failed upload', 
   assert.equal(body.files[0].error, 'file_too_large');
   assert.match(r.err, /the text is delivered/);
 }));
+// Child-process coverage uses the actual CLI and adapter. The preload intercepts all HTTP
+// and observes adapter loading without changing authorization or credential resolution.
+function credentialCli(fx, argv, assignment, processToken) {
+  const real = path.resolve(__dirname, '../../../../slack/capabilities/tools/slack/lib/messaging.js');
+  const preload = path.join(fx.installation, 'intercept.cjs');
+  const trace = path.join(fx.installation, 'trace.json');
+  const expected = processToken || 'xoxb-$UNEXPANDED-`literal`';
+  fs.writeFileSync(path.join(fx.installation, '.rbtv', 'config', 'env', '.env'), assignment, 'utf8');
+  fs.writeFileSync(preload, `
+    const fs = require('node:fs');
+    const Module = require('node:module');
+    const trace = { loads: [], calls: [] };
+    const save = () => fs.writeFileSync(${JSON.stringify(trace)}, JSON.stringify(trace), 'utf8');
+    const original = Module._load;
+    Module._load = function(request, ...args) {
+      if (Module._resolveFilename(request, args[0]) === ${JSON.stringify(real)}) { trace.loads.push('adapter'); save(); }
+      return original.call(this, request, ...args);
+    };
+    save();
+    global.fetch = async (url, opts) => {
+      if (!String(url).startsWith('https://intercepted.invalid/api/')) throw new Error('unexpected endpoint');
+      const method = String(url).split('/').pop();
+      const params = Object.fromEntries(new URLSearchParams(opts.body));
+      trace.calls.push({ method, params, credentialMatches: opts.headers.authorization === 'Bearer ' + ${JSON.stringify(expected)} });
+      save();
+      let data;
+      if (method === 'conversations.info') data = { ok: true, channel: { id: params.channel, is_im: true, user: params.channel === 'D0OWNERDM1' ? 'U0OWNER001' : 'U0OTHER' } };
+      else if (method === 'auth.test') data = { ok: true, team_id: 'T0BJAM8PACU' };
+      else if (method === 'conversations.open') data = { ok: true, channel: { id: 'D0OWNERDM1' } };
+      else if (method === 'conversations.replies') data = { ok: true, messages: [{ ts: params.ts, thread_ts: '1792160000.000100', text: 'reply' }] };
+      else if (method === 'chat.postMessage') data = { ok: true, channel: params.channel, ts: '1792160060.000300' };
+      else throw new Error('unexpected HTTP method');
+      return { ok: true, json: async () => data };
+    };
+  `, 'utf8');
+  const env = { ...process.env, RBTV_AGENT_HOME: fx.home, SLACK_API_URL: 'https://intercepted.invalid/api' };
+  delete env.NODE_OPTIONS;
+  delete env.SLACK_BOT_TOKEN;
+  if (processToken !== undefined) env.SLACK_BOT_TOKEN = processToken;
+  const child = spawnSync(process.execPath, ['--require', preload, PROGRAM, '--json', ...argv], {
+    cwd: fx.home, env, encoding: 'utf8', timeout: 15_000,
+  });
+  return { code: child.status, out: child.stdout, err: child.stderr, trace: JSON.parse(fs.readFileSync(trace, 'utf8')) };
+}
+
+for (const [syntax, assignment, processToken] of [
+  ['ordinary assignment', 'SLACK_BOT_TOKEN=xoxb-$UNEXPANDED-`literal`\r\n'],
+  ['exported assignment', 'export SLACK_BOT_TOKEN=xoxb-$UNEXPANDED-`literal`\r\n'],
+  ['quoted exported assignment', '  export\tSLACK_BOT_TOKEN = "xoxb-$UNEXPANDED-`literal`"\r\n'],
+  ['process precedence', "export SLACK_BOT_TOKEN='different-file-value'\n", 'xoxb-$PROCESS-`literal`'],
+]) {
+  test(`real CLI owner non-root reply with ${syntax}: policy and adapter use the literal credential`, () => {
+    const fx = fixture();
+    try {
+      const r = credentialCli(fx, ['reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', 'reply'], assignment, processToken);
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.err, '');
+      assert.equal(JSON.parse(r.out).thread, '1792160000.000100');
+      assert.deepEqual(r.trace.calls.map(c => c.method), ['conversations.info', 'auth.test', 'conversations.replies', 'chat.postMessage']);
+      assert.deepEqual(r.trace.loads, ['adapter']);
+      assert.ok(r.trace.calls.every(c => c.credentialMatches), 'policy and delivery credentials match the literal input');
+      assert.equal(r.trace.calls.at(-1).params.thread_ts, '1792160000.000100');
+    } finally {
+      fs.rmSync(fx.installation, { recursive: true, force: true });
+      fs.rmSync(fx.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('real CLI exported credential retains denials with zero adapter effects and owner/own-channel/history positives', () => {
+  const fx = fixture();
+  const assignment = 'export SLACK_BOT_TOKEN=xoxb-$UNEXPANDED-`literal`\n';
+  try {
+    for (const ref of ['slack:TWRONG:D0OWNERDM1:1792160030.000200', 'slack:T0BJAM8PACU:D0OTHERDM1:1792160030.000200']) {
+      const r = credentialCli(fx, ['reply', '--thread', ref, 'reply'], assignment);
+      assert.equal(r.code, 1);
+      assert.equal(r.out, '');
+      assert.deepEqual(r.trace.loads, []);
+      assert.ok(r.trace.calls.every(c => c.method === 'conversations.info'));
+    }
+    for (const argv of [
+      ['send', '--via', 'slack', '--to', 'U0OWNER001', 'hello'],
+      ['reply', '--thread', 'slack:T0BJAM8PACU:C0SARA0001:1792160030.000200', 'reply'],
+      ['history', '--thread', 'slack:T0BJAM8PACU:C0OTHER0001:1792160030.000200'],
+    ]) {
+      const r = credentialCli(fx, argv, assignment);
+      assert.equal(r.code, 0, r.err);
+      assert.deepEqual(r.trace.loads, ['adapter']);
+      assert.ok(r.trace.calls.length > 0 && r.trace.calls.every(c => c.credentialMatches));
+    }
+  } finally {
+    fs.rmSync(fx.installation, { recursive: true, force: true });
+    fs.rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
 test('shared send preserves the original Error object on a files-only total failure', async () => {
   const original = Object.assign(new Error('thread absent'), { code: 'thread', reason: 'thread_not_found', extra: 17 });
   await assert.rejects(require(SEND).send({ 'message.send': async () => {}, 'message.file': async () => { throw original; } }, { group: 'C1', thread: '1.1', files: ['a.pdf'] }), error => error === original);
