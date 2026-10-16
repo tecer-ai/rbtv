@@ -1,0 +1,5 @@
+{
+  "name": "pay",
+  "description": "Pays by Pix key, QR code, bill or mobile top-up from a named account (--from) through Ignite's payment gate, resolving the recipient through the account's connector; lists, shows, withdraws and fetches the receipt of this agent's requests; lists the accounts. Never calls a paying endpoint itself.",
+  "entry": "pay.js"
+}

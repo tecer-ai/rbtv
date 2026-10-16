@@ -166,7 +166,9 @@ function fixture({ payments = {} } = {}) {
 }
 
 function child(argv, cwd = os.tmpdir()) {
-  const p = spawnSync(process.execPath, [PROGRAM, ...argv], { cwd, encoding: 'utf8' });
+  const env = { ...process.env };
+  delete env.RBTV_AGENT_HOME;
+  const p = spawnSync(process.execPath, [PROGRAM, ...argv], { cwd, encoding: 'utf8', env });
   return { code: p.status, out: p.stdout, err: p.stderr };
 }
 
@@ -189,14 +191,14 @@ test('help at every depth and position exits 0 with no setup; bare root exits 2;
   assert.match(root.out, /^usage: pay \[-h\] \[--json\] COMMAND \.\.\.\n/);
   assert.match(root.out, /pix {7}Pix to a key: looks up its owner, then asks the gate\n/);
   assert.match(root.out, /accounts {2}the accounts --from may name, and their connectors\n/);
-  assert.doesNotMatch(root.out, /resolve|execute|status/, 'no service verbs');
+  assert.doesNotMatch(root.out, /resolve, execute, status|waking service only|pay execute|pay status/, 'no service verbs');
   assert.match(root.out, /Start: pay accounts, then pay pix -h/);
   for (const line of lines(root.out)) assert.ok(line.length <= 80, `80 columns: ${line}`);
   assert.match(child(['pix', '-h']).out, /^usage: pay pix \[-h\] \[--json\] --from ACCOUNT --to KEY --amount VALUE --note TEXT\n {15}\[--type \{CPF,CNPJ,EMAIL,PHONE,EVP\}\]\n/);
   assert.match(child(['pix', '-h']).out, /Example: pay pix --from asaas --to pia@example.com --amount 18,00 --note "Aula"\nNext: pay show P-0007\n/);
   assert.match(child(['qr', '-h']).out, /^usage: pay qr \[-h\] \[--json\] --from ACCOUNT --code PAYLOAD --note TEXT \[--amount VALUE\]\n/);
   assert.match(child(['bill', '-h']).out, /^usage: pay bill \[-h\] \[--json\] --from ACCOUNT --line DIGITS --note TEXT\n/);
-  assert.match(child(['bill', '-h']).out, /amount plus fee counts toward the limits/);
+  assert.match(child(['bill', '-h']).out, /amount\s+plus fee counts toward the limits/);
   assert.match(child(['recharge', '-h']).out, /^usage: pay recharge \[-h\] \[--json\] --from ACCOUNT --number PHONE --amount VALUE --note TEXT\n/);
   assert.match(child(['list', '-h']).out, /^usage: pay list \[-h\] \[--json\] \[--state \{pending,approved,sent,uncertain,refused,cancelled,failed\}\]\n/);
   assert.match(child(['show', '-h']).out, /^usage: pay show \[-h\] \[--json\] ID\n/);
@@ -422,9 +424,10 @@ test('S5 cancel: pending withdrawn, a sent Pix cancelled at the bank; S5r refusa
   assert.deepEqual(JSON.parse(json.out), { id: 'P-0003', connector_id: 'tra_fake0003', status: 'CANCELLED' });
   fx.gate.state.sendAs = { id: 'pq_8', status: 'DONE', receipt: null };
   fx.gate.state.spent = 0;
+  fx.gate.state.dayLimit = 10000;
   fx.gate.state.nextId = 8;
-  await fx.run(['qr', '--from', 'asaas', '--code', QR, '--note', 'Pão', '--amount', '1']);
-  assert.equal(fx.gate.rows.at(-1).id, 'P-0008');
+  await fx.run(['qr', '--from', 'asaas', '--code', QR, '--note', 'Pão']);
+  assert.deepEqual([fx.gate.rows.at(-1).id, fx.gate.rows.at(-1).state], ['P-0008', 'sent']);
   const qr = await fx.run(['cancel', 'P-0008']);
   assert.equal(qr.code, 1);
   three(qr, 'pay: P-0008 is a qr payment asaas already has', 'asaas cancels Pix key transfers and bills only', "ask the owner to cancel it in the bank's app while it allows it");
