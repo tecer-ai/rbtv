@@ -7,12 +7,15 @@ Pays only through Ignite's payment gate: `pay pix`, `pay qr`, `pay bill` and
 `pay recharge` resolve the recipient, record a request with `ignite payment
 request`, and print the gate's answer. They never call a paying endpoint. The
 waking service runs the rest with the request on stdin: `pay resolve` reads the
-recipient again before the owner sees it, and `pay execute` alone calls a paying
-endpoint (POST /transfers, /bill, /pix/qrCodes/pay, /mobilePhoneRecharges). A
+recipient again before the owner sees it (`pay resolve draft` does the same for
+the `pay` port command before any request exists), and `pay execute` alone calls
+a paying endpoint (POST /transfers, /bill, /pix/qrCodes/pay, /mobilePhoneRecharges). A
 transfer and a bill carry the request id as externalReference; a QR payment and
 a top-up take none, so Ignite records the operation id `pay execute` prints.
 Asaas then asks Ignite's withdrawal validation, which approves only that request
 (its half for Asaas is lib/withdrawal-validation.js, which Ignite loads).
+A gate row names its connector as `connector`, `connector_id` and
+`connector_status`; the older spelling `provider*` is still read.
 
 Key: $ASAAS_API_KEY from the process environment first, then the line
 ASAAS_API_KEY=... of the installation's .rbtv/config/env/.env, read literally:
@@ -47,7 +50,7 @@ RECEIPT_PDF_RE = re.compile(r'href="(/transactionReceipt/pdf/[0-9]+)"')
 REQUEST_ID_RE = re.compile(r"P-\d+\Z")
 IGNITE_ENV = "ASAAS_IGNITE"            # test hook: path of Ignite's cli.js, run with node, in place of `ignite`
 GATE_WAIT_ENV = "ASAAS_GATE_WAIT"      # seconds `pay` waits for Ignite to send an approved payment (default 30)
-PROVIDER = "asaas"
+CONNECTOR = "asaas"
 NOTE_MAX = 140
 QR_MAX = 2000
 UNKNOWN_FIX = f"{PROG} payments lists this agent's request ids; an id it does not list is another agent's or does not exist"
@@ -299,6 +302,14 @@ def phone_number(text):
     return digits
 
 
+def field(row, *names):
+    """The first of the named fields a gate row carries: `connector_id` or, from an older Ignite, `provider_id`."""
+    for name in names:
+        if row.get(name) is not None:
+            return row.get(name)
+    return None
+
+
 def gate(*args, stdin=None, fix=None):
     """Runs `ignite --json payment ...`; returns its JSON. Ignite refusing is a Refusal with the caller's fix."""
     hook = os.environ.get(IGNITE_ENV)
@@ -332,7 +343,7 @@ def in_turn():
 
 
 def ask_gate(request):
-    row = gate("request", "--provider", PROVIDER, "--request", "-", stdin=json.dumps(request))
+    row = gate("request", "--provider", CONNECTOR, "--request", "-", stdin=json.dumps(request))
     wait = float(os.environ.get(GATE_WAIT_ENV, "30") or 0)
     deadline = time.monotonic() + wait
     while row.get("state") == "approved" and time.monotonic() < deadline:
@@ -358,7 +369,7 @@ def request_line(row):
         return f"{rid}, the outcome arrives in this conversation"
     if state == "sent":
         receipt = row.get("receipt_url")
-        return f"{rid}, Asaas id {row.get('provider_id')}" + (f", receipt {receipt}" if receipt else "")
+        return f"{rid}, Asaas id {field(row, 'connector_id', 'provider_id')}" + (f", receipt {receipt}" if receipt else "")
     return rid
 
 
@@ -457,35 +468,62 @@ def stdin_request(rid):
         req = json.loads(sys.stdin.read())
     except json.JSONDecodeError as e:
         raise Refusal("no request on stdin", str(e), "Ignite's waking service runs this command; an agent pays with asaas pay")
-    if not isinstance(req, dict) or req.get("id") != rid or req.get("provider") != PROVIDER:
-        raise Refusal(f"stdin is not the request {rid}", "the id or the provider differs", "Ignite's waking service runs this command")
+    if not isinstance(req, dict) or req.get("id") != rid or field(req, "connector", "provider") != CONNECTOR:
+        raise Refusal(f"stdin is not the request {rid}", "the id or the connector differs", "Ignite's waking service runs this command")
     return req
 
 
+def resolve_recipient(method, key, key_type):
+    """The recipient as Asaas names it, with what Asaas fixes: (recipient, amount_cents, fee_cents, changeable, details).
+    amount_cents is None when the payer chooses it; changeable says whether a fixed QR amount may differ."""
+    if method == "pix":
+        return pix_owner(key, key_type), None, None, None, {}
+    if method == "qr":
+        recipient, fixed, changeable = qr_decode(key)
+        return recipient, fixed, None, changeable, {}
+    if method == "bill":
+        recipient, amount, fee, details = bill_simulation(key)
+        return recipient, amount, fee, False, details
+    if method == "recharge":
+        try:
+            phone = phone_number(key)
+        except argparse.ArgumentTypeError as e:
+            raise Refusal("the request's phone is not a mobile number", str(e), "tell the owner")
+        return {"name": None, "key": phone, "key_type": "PHONE", "document": None, "bank": None}, None, None, None, {}
+    raise Refusal(f"asaas cannot resolve a {method} request", "this version pays pix, qr, bill and recharge", "tell the owner")
+
+
+def recipient_lines(recipient, amount, fee):
+    return [f"Recipient {' · '.join(x for x in (recipient['name'], recipient['document'], recipient['bank']) if x) or '-'}",
+            f"Key       {recipient['key']}",
+            f"Amount    {brl_cents(amount)}" + (f" + fee {brl_cents(fee)}" if fee else "")]
+
+
 def cmd_pay_resolve(args):
+    if args.id == "draft":
+        return cmd_pay_resolve_draft(args)
     req = stdin_request(args.id)
     r = req.get("recipient") or {}
     method = req.get("method")
-    amount = fee = None
-    if method == "pix":
-        recipient = pix_owner(r.get("key") or "", r.get("key_type"))
-    elif method == "qr":
-        recipient, fixed, changeable = qr_decode(r.get("key") or "")
-        amount = None if changeable else fixed
-    elif method == "bill":
-        recipient, amount, fee, _ = bill_simulation(r.get("key") or "")
-    elif method == "recharge":
-        try:
-            phone = phone_number(r.get("key") or "")
-        except argparse.ArgumentTypeError as e:
-            raise Refusal("the request's phone is not a mobile number", str(e), "tell the owner")
-        recipient = {"name": None, "key": phone, "key_type": "PHONE", "document": None, "bank": None}
-    else:
-        raise Refusal(f"asaas cannot resolve a {method} request", "this version pays pix, qr, bill and recharge", "tell the owner")
-    payload = {**recipient, "amount_cents": amount, "fee_cents": fee}
-    out(args, payload, [f"Recipient {' · '.join(x for x in (recipient['name'], recipient['document'], recipient['bank']) if x) or '-'}",
-                        f"Key       {recipient['key']}",
-                        f"Amount    {brl_cents(amount)}" + (f" + fee {brl_cents(fee)}" if fee else "")])
+    recipient, amount, fee, changeable, _ = resolve_recipient(method, r.get("key") or "", r.get("key_type"))
+    if method == "qr" and changeable:
+        amount = None
+    out(args, {**recipient, "amount_cents": amount, "fee_cents": fee}, recipient_lines(recipient, amount, fee))
+
+
+def cmd_pay_resolve_draft(args):
+    """`pay resolve draft`: the pay port command's lookup before the gate. The draft on stdin is
+    {connector, method, recipient: {key, key_type}, amount_cents, note}; no request exists yet."""
+    try:
+        draft = json.loads(sys.stdin.read())
+    except json.JSONDecodeError as e:
+        raise Refusal("no draft on stdin", str(e), "the pay command runs this verb with the draft request on stdin")
+    if not isinstance(draft, dict) or field(draft, "connector", "provider") != CONNECTOR:
+        raise Refusal("stdin is not a draft for asaas", "the connector differs", "the pay command runs this verb with the draft request on stdin")
+    r = draft.get("recipient") or {}
+    recipient, amount, fee, changeable, details = resolve_recipient(draft.get("method"), r.get("key") or "", r.get("key_type"))
+    payload = {"recipient": recipient, "amount_cents": amount, "fee_cents": fee, "changeable": changeable, "details": details}
+    out(args, payload, recipient_lines(recipient, amount, fee))
 
 
 def not_created(args, err):
@@ -539,7 +577,7 @@ STATUS_READ = {
 
 def cmd_pay_status(args):
     req = stdin_request(args.id)
-    pid = req.get("provider_id")
+    pid = field(req, "connector_id", "provider_id")
     if not pid:
         raise Refusal(f"{args.id} has no Asaas id", "it was not sent", "ignite payment show " + args.id)
     if req.get("method") not in STATUS_READ:
@@ -569,7 +607,8 @@ def cmd_payment(args):
              f"Amount      {brl_cents(row['amount_cents'])}" + (f" + fee {brl_cents(row['fee_cents'])}" if row.get("fee_cents") else ""),
              f"Note        {row.get('note') or '-'}",
              f"State       {state_line(row)}",
-             f"Asaas id    {row.get('provider_id') or '-'}" + (f" ({row['provider_status']})" if row.get("provider_status") else ""),
+             f"Asaas id    {field(row, 'connector_id', 'provider_id') or '-'}"
+             + (f" ({field(row, 'connector_status', 'provider_status')})" if field(row, "connector_status", "provider_status") else ""),
              f"Receipt     {row.get('receipt_url') or '-'}"]
     out(args, row, lines)
 
@@ -622,8 +661,8 @@ def cmd_cancel(args):
         row = gate("cancel", args.id)
         out(args, row, [f"Cancelled   {row['id']}: withdrawn before the owner decided"])
         return
-    if row.get("state") == "sent" and row.get("provider_id") and row.get("method") in ("pix", "bill"):
-        pid = row["provider_id"]
+    if row.get("state") == "sent" and field(row, "connector_id", "provider_id") and row.get("method") in ("pix", "bill"):
+        pid = field(row, "connector_id", "provider_id")
         data = call("DELETE", f"/transfers/{pid}/cancel") if row.get("method") == "pix" else call("POST", f"/bill/{pid}/cancel", body={})
         payload = {"id": row["id"], "provider_id": pid, "status": data.get("status")}
         out(args, payload, [f"Cancelled   {row['id']} at Asaas ({pid}): {data.get('status')}",
@@ -694,11 +733,13 @@ def parser():
     s.add_argument("phone", type=phone_number, help="the mobile number with its area code, like 11912345678 or \"11 91234-5678\" (quoted when it has spaces; +55 optional)")
     s.add_argument("amount", type=amount_cents, help="reais, like 20 or 20,00; the operator's top-up values apply")
     s.set_defaults(fn=cmd_pay_recharge)
-    s = paysub.add_parser("resolve", help="Ignite's waking service only: read the request's recipient on stdin from Asaas",
-                          description="Ignite's waking service only. Reads the request ID as JSON on stdin and prints its "
-                                      "recipient as Asaas names it (Pix key lookup, QR code decode, bill simulation), with the "
-                                      "amount and fee Asaas fixes, before the owner is asked. Moves no money.")
-    s.add_argument("id", help="the request id, such as P-0007")
+    s = paysub.add_parser("resolve", help="Ignite's waking service and the pay command only: read the request's recipient on stdin from Asaas",
+                          description="Ignite's waking service and the pay command only. Reads the request ID as JSON on stdin and "
+                                      "prints its recipient as Asaas names it (Pix key lookup, QR code decode, bill simulation), with "
+                                      "the amount and fee Asaas fixes, before the owner is asked. With ID draft, reads a draft "
+                                      "{connector, method, recipient: {key, key_type}, amount_cents, note} that no request records yet "
+                                      "and prints {recipient, amount_cents, fee_cents, changeable, details}. Moves no money.")
+    s.add_argument("id", help="the request id, such as P-0007, or draft")
     s.set_defaults(fn=cmd_pay_resolve)
     s = paysub.add_parser("execute", help="Ignite's waking service only: send the approved request on stdin",
                           description="Ignite's waking service only. Reads the approved request ID as JSON on stdin "

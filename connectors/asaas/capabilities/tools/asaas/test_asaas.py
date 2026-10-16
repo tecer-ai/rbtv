@@ -477,6 +477,41 @@ def service_new_methods(server, home, work, R, line):
     check("pay resolve calls only lookup, decode and simulate", [(x["method"], x["path"]) for x in Stub.seen] == [
         ("GET", "/v3/pix/addressKeys/external"), ("POST", "/v3/pix/qrCodes/decode"), ("POST", "/v3/bill/simulate")], Stub.seen)
 
+    # Phase 2 of the connector architecture: a gate row says connector, connector_id and connector_status; the
+    # older spelling is still read, and `pay resolve draft` resolves for the pay port command before any request.
+    renamed = {k: v for k, v in pix.items() if k != "provider"}
+    renamed["connector"] = "asaas"
+    code, out, err = run(work, server, "--json", "pay", "resolve", "P-0002", stdin=json.dumps({**renamed, "state": "pending"}))
+    check("pay resolve reads a request that says connector instead of provider", code == 0 and json.loads(out)["name"] == "KENU EXAMPLE SILVA", out + err)
+    code, out, err = run(work, server, "--json", "pay", "resolve", "P-0002", stdin=json.dumps({**renamed, "connector": "nubank", "state": "pending"}))
+    check("pay resolve refuses a request of another connector, in the connector's word", code == 1 and "the id or the connector differs" in err, out + err)
+    Stub.seen.clear()
+    drafts = {}
+    for req in (pix, qr, bill, top):
+        draft = {"connector": "asaas", "method": req["method"], "recipient": {"key": req["recipient"]["key"], "key_type": req["recipient"].get("key_type")},
+                 "amount_cents": req["amount_cents"], "note": req["note"]}
+        code, out, err = run(work, server, "--json", "pay", "resolve", "draft", stdin=json.dumps(draft))
+        drafts[req["method"]] = json.loads(out) if code == 0 else out + err
+    check("pay resolve draft resolves a Pix key: the owner, no amount, nothing fixed", drafts["pix"] == {
+        "recipient": {"name": "KENU EXAMPLE SILVA", "document": "***.123.456-**", "bank": "Nubank", "key": "kenu@example.com", "key_type": "EMAIL"},
+        "amount_cents": None, "fee_cents": None, "changeable": None, "details": {}}, drafts["pix"])
+    check("pay resolve draft decodes a QR code: the fixed amount and whether it may change", drafts["qr"] == {
+        "recipient": {"name": "PADARIA PAO BOM", "document": "**.222.333/0001-**", "bank": "Banco Z", "key": QR, "key_type": "QR"},
+        "amount_cents": 3500, "fee_cents": None, "changeable": False, "details": {}}, drafts["qr"])
+    check("pay resolve draft simulates a bill: amount, fee and details", drafts["bill"] == {
+        "recipient": {"name": "ENEL DISTRIBUICAO", "document": "**.123.456/0001-**", "bank": "237", "key": line, "key_type": None},
+        "amount_cents": 2000, "fee_cents": 199, "changeable": False,
+        "details": {"due_date": "2026-10-20", "company": "ENEL", "minimum_schedule_date": "2026-10-15"}}, drafts["bill"])
+    check("pay resolve draft gives a top-up's phone as 11 digits with no call", drafts["recharge"] == {
+        "recipient": {"name": None, "document": None, "bank": None, "key": "11912345678", "key_type": "PHONE"},
+        "amount_cents": None, "fee_cents": None, "changeable": None, "details": {}}, drafts["recharge"])
+    check("pay resolve draft calls only lookup, decode and simulate", [(x["method"], x["path"]) for x in Stub.seen] == [
+        ("GET", "/v3/pix/addressKeys/external"), ("POST", "/v3/pix/qrCodes/decode"), ("POST", "/v3/bill/simulate")], Stub.seen)
+    code, out, err = run(work, server, "--json", "pay", "resolve", "draft", stdin=json.dumps({"connector": "nubank", "method": "pix", "recipient": {"key": "a@b.c"}}))
+    check("pay resolve draft refuses a draft for another connector", code == 1 and "stdin is not a draft for asaas" in err and out == "", out + err)
+    code, out, err = run(work, server, "pay", "resolve", "draft", stdin="not json")
+    check("pay resolve draft refuses an empty stdin, naming who runs it", code == 1 and "no draft on stdin" in err and "pay command" in err, out + err)
+
     R[("POST", "/v3/pix/qrCodes/pay")] = (200, {"id": "pq_1", "status": "AWAITING_REQUEST", "transactionReceiptUrl": None})
     R[("POST", "/v3/mobilePhoneRecharges")] = (200, {"id": "rc_1", "value": 20, "phoneNumber": "11912345678", "status": "PENDING"})
     Stub.seen.clear()
@@ -505,6 +540,8 @@ def service_new_methods(server, home, work, R, line):
     code, out, err = run(work, server, "--json", "pay", "status", "P-0007", stdin=json.dumps({**qr, "state": "sent", "provider_id": "pq_1"}))
     check("pay status reads a QR payment as a Pix transaction", code == 0 and json.loads(out) == {
         "provider_id": "pq_1", "status": "DONE", "final": True, "ok": True, "receipt_url": "https://r.example/q", "reason": None}, out + err)
+    code, out, err = run(work, server, "--json", "pay", "status", "P-0007", stdin=json.dumps({**{k: v for k, v in qr.items() if k != "provider"}, "connector": "asaas", "state": "sent", "connector_id": "pq_1"}))
+    check("pay status reads connector_id from a renamed row", code == 0 and json.loads(out)["status"] == "DONE", out + err)
     R[("GET", "/v3/mobilePhoneRecharges/rc_1")] = (200, {"id": "rc_1", "status": "CANCELLED"})
     code, out, err = run(work, server, "--json", "pay", "status", "P-0009", stdin=json.dumps({**top, "state": "uncertain", "provider_id": "rc_1"}))
     check("pay status reads a top-up and calls CANCELLED final and not ok", code == 0 and json.loads(out) == {
