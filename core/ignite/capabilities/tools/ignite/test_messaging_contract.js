@@ -10,17 +10,25 @@
 // and the test programs. A call site is a (file, method) at which such a file reaches a method
 // of the Slack class through a name that holds the client. In each file the holders are `slack`
 // (bare, `deps.slack`, `slack()`, `this.slack` and the like), every name assigned from a holder
-// or from `new Slack(`, and a method name taken out of a holder by destructuring; a holder's
-// method is reached by property (`slack.postMessage(`, `s.postMessage ({`, `deps.slack?.openIm`),
-// by index in a file that calls the client that way (status-ticker.js calls `client[method](...)`,
-// so a method named as a string there is a call site) or bare after destructuring. The contract's
-// call-site table has one row per file and method: | `file.js` | `method` | tag | ... | with tag
-// message, panel or ignite-internal, the file written relative to this folder. An untagged
-// production call site fails, and so does a row whose call site no longer exists.
+// or from `new Slack(`, and a method taken out of a holder by destructuring, under its own name
+// or renamed (`const { canvasCreate: create } = deps.slack` makes `create(` a call of canvasCreate);
+// a holder's method is reached by property with any spacing or line break between the holder and
+// the method (`slack.postMessage(`, `s.postMessage ({`, `deps.slack?.openIm`, `deps.slack` at the
+// end of one line and `.canvasCreate(` on the next), by index in a file that calls the client that
+// way (status-ticker.js calls `client[method](...)`, so a method named as a string there is a
+// call site) or bare after destructuring. Matching runs on each file's whole text with its
+// comments blanked, never line by line. The contract's call-site table has one row per file and
+// method: | `file.js` | `method` | tag | ... | with tag message, panel or ignite-internal, the
+// file written relative to this folder. An untagged production call site fails, and so does a
+// row whose call site no longer exists.
 //
 // The slash-command and interactive payloads are the contract's sections "Slash command" and
-// "Buttons and forms". Every top-level field the panel's files read from a payload
-// (`payload.trigger_id`, `payload.view`) is named in one of those sections' Field column.
+// "Buttons and forms". Every path the panel's files read from a payload is named in one of those
+// sections' Field column, as written: `payload.trigger_id` is `trigger_id`, `payload.actions?.[0]`
+// then `act.action_id` is `actions[0].action_id`, `const view = payload.view` then
+// `view.state.values[blockId]` is `view.state.values` (a computed index ends the path). A name
+// assigned from a payload path (`const view = payload.view || {}`) reads that path wherever the
+// file uses it, in any function.
 //
 // The inbound event shape is the contract's table under "## Inbound event": | `field` | type |
 // required or optional | ... |. Each fixture in messaging-contract/inbound-*.json must hold every
@@ -84,10 +92,18 @@ function productionFiles() {
   return found.sort((a, b) => a.file.localeCompare(b.file));
 }
 
-// The code of each line: a whole-line comment is dropped, and so is a trailing ` // ...`.
-function codeLines(text) {
-  return text.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/.*$/, ''));
+// The code of a file: a whole-line comment is blanked, and so is a trailing ` // ...`; line breaks
+// are kept, so an index into the code names a line.
+function codeOf(text) {
+  return text.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/.*$/, '')).join('\n');
 }
+
+// The 1-based line that holds the character at `index` of `code`.
+function lineAt(code, index) {
+  return code.slice(0, index).split('\n').length;
+}
+
+const NAME = /^[A-Za-z_$][\w$]*$/;
 
 // A receiver that holds the client: an optional property chain ending in a holder name, optionally
 // called (`slack()`), as a regular-expression source.
@@ -95,30 +111,29 @@ function holderExpr(names) {
   return `(?:[\\w$]+\\??\\.)*(?:${[...names].map(escapeReg).join('|')})(?:\\(\\))?`;
 }
 
-// The names that hold the Slack client in one file, and the method names taken out of one by
-// destructuring. Grows until no assignment adds a name.
+// The names that hold the Slack client in one file, and the methods taken out of one by
+// destructuring, each local name mapped to the Slack method it names. Grows until no assignment
+// adds a name. Matches on the file's code with ^ and $ at line ends.
 function holders(code) {
   const names = new Set(['slack']);
-  const bare = new Set();
+  const bare = new Map();
   const lhs = '(?:^|[^\\w$.])(?:(?:const|let|var)\\s+)?([A-Za-z_$][\\w$]*)\\s*=\\s*';
   for (;;) {
     const before = names.size + bare.size;
     const holder = holderExpr(names);
-    const assigned = new RegExp(`${lhs}(?:await\\s+)?${holder}(?:\\s*\\|\\|\\s*null)?\\s*(?:;|$)`);
-    const ternary = new RegExp(`${lhs}[^;]*\\?\\s*${holder}\\s*:`);
-    const made = new RegExp(`${lhs}new Slack\\s*\\(`);
-    const taken = new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?${holder}\\s*(?:;|$)`);
-    for (const line of code) {
-      for (const form of [assigned, ternary, made]) {
-        const match = line.match(form);
-        if (match) names.add(match[1]);
-      }
-      const match = line.match(taken);
-      if (match) {
-        for (const part of match[1].split(',')) {
-          const name = part.split(':').pop().trim().replace(/\s*=.*$/, '');
-          if (/^[A-Za-z_$][\w$]*$/.test(name)) bare.add(name);
-        }
+    const forms = [
+      new RegExp(`${lhs}(?:await\\s+)?${holder}(?:\\s*\\|\\|\\s*null)?\\s*(?:;|$)`, 'gm'),
+      new RegExp(`${lhs}[^;\\n]*\\?\\s*${holder}\\s*:`, 'gm'),
+      new RegExp(`${lhs}new Slack\\s*\\(`, 'gm'),
+    ];
+    for (const form of forms) {
+      for (const match of code.matchAll(form)) names.add(match[1]);
+    }
+    const taken = new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?${holder}\\s*(?:;|$)`, 'gm');
+    for (const match of code.matchAll(taken)) {
+      for (const part of match[1].split(',')) {
+        const [method, local = method] = part.split(':').map((s) => s.trim().replace(/\s*=.*$/, ''));
+        if (NAME.test(method) && NAME.test(local)) bare.set(local, method);
       }
     }
     if (names.size + bare.size === before) return { names, bare };
@@ -128,27 +143,28 @@ function holders(code) {
 // Every (file, method) at which Ignite reaches the Slack client, with the lines it was seen on.
 function callSites(methods) {
   const found = new Map();
-  const note = (file, method, index) => {
+  const note = (file, method, line) => {
     const key = `${file}:${method}`;
-    if (!found.has(key)) found.set(key, { file, method, lines: [] });
-    found.get(key).lines.push(index + 1);
+    if (!found.has(key)) found.set(key, { file, method, lines: new Set() });
+    found.get(key).lines.add(line);
   };
   for (const { file, abs } of productionFiles()) {
-    const code = codeLines(fs.readFileSync(abs, 'utf8'));
+    const code = codeOf(fs.readFileSync(abs, 'utf8'));
     const { names, bare } = holders(code);
     const holder = holderExpr(names);
-    const indexed = new RegExp(`(?:^|[^\\w$])${holder}\\s*\\[\\s*[^\\]]+\\s*\\]\\s*\\(`).test(code.join('\n'));
-    code.forEach((line, index) => {
-      for (const method of methods) {
-        const property = new RegExp(`(?:^|[^\\w$])${holder}\\s*\\??\\.\\s*${method}\\b`);
-        const named = new RegExp(`['"\`]${method}['"\`]`);
-        const direct = new RegExp(`(?:^|[^\\w$.])${method}\\s*\\(`);
-        if (property.test(line) || (indexed && named.test(line)) || (bare.has(method) && direct.test(line))) {
-          note(file, method, index);
-        }
+    const indexed = new RegExp(`(?:^|[^\\w$])${holder}\\s*\\[\\s*[^\\]]+\\s*\\]\\s*\\(`).test(code);
+    for (const method of methods) {
+      const forms = [new RegExp(`(?:^|[^\\w$])${holder}\\s*\\??\\.\\s*${method}\\b`, 'g')];
+      if (indexed) forms.push(new RegExp(`['"\`]${method}['"\`]`, 'g'));
+      for (const [local, original] of bare) {
+        if (original === method) forms.push(new RegExp(`(?:^|[^\\w$.])${escapeReg(local)}\\s*\\(`, 'g'));
       }
-    });
+      for (const form of forms) {
+        for (const match of code.matchAll(form)) note(file, method, lineAt(code, match.index));
+      }
+    }
   }
+  for (const site of found.values()) site.lines = [...site.lines].sort((a, b) => a - b);
   return found;
 }
 
@@ -177,8 +193,9 @@ function contractRows() {
   return { rows, shape, sections };
 }
 
-// The first segment of every field a section's table names in its Field column: `user.id` → user,
-// `actions[0].action_id` → actions.
+// Every path a section's table names in its Field column, as written: `user.id`,
+// `actions[0].action_id`, `view.state.values`; a cell may name several, joined by `,` or ` or `.
+const PATH = /^[A-Za-z_$][\w$]*(?:\[\d+\]|\.[A-Za-z_$][\w$]*)*$/;
 function sectionFields(sectionLines) {
   const fields = new Set();
   let column = -1;
@@ -192,24 +209,69 @@ function sectionFields(sectionLines) {
     if (column >= cells.length || /^-+$/.test(cells[column])) continue;
     for (const span of cells[column].match(/`[^`]+`/g) || []) {
       for (const part of span.slice(1, -1).split(/,|\s+or\s+/)) {
-        const head = part.trim().match(/^[A-Za-z_$][\w$]*/);
-        if (head) fields.add(head[0]);
+        const field = part.trim();
+        if (PATH.test(field)) fields.add(field);
       }
     }
   }
   return fields;
 }
 
-// Every top-level field the given files read from a payload: `payload.user_id`, `payload?.view`.
+// The path read right after `index` in `code`: `.name`, `?.name`, `[0]` and `?.[0]` segments, ended
+// by anything else, a computed index (`[blockId]`) included. Returns the path as the contract
+// writes it (`actions[0].action_id`, empty when nothing is read) and where it ends.
+function pathAfter(code, index) {
+  let path = '';
+  let at = index;
+  for (;;) {
+    const rest = code.slice(at, at + 120);
+    let match;
+    if ((match = rest.match(/^\s*\??\.\s*([A-Za-z_$][\w$]*)/))) path += `${path ? '.' : ''}${match[1]}`;
+    else if ((match = rest.match(/^\s*(?:\?\.)?\s*\[\s*(\d+)\s*\]/))) path += `[${match[1]}]`;
+    else return { path, end: at };
+    at += match[0].length;
+  }
+}
+
+// Every path the given files read from a payload, with where. A root is `payload` or a name assigned
+// from a payload path (`const view = payload.view || {};`, `const act = payload?.actions?.[0];`),
+// found to a fixed point; a read through such a name is the payload path it stands for, and a name
+// nothing reads through (`const root = view?.root_view_id;`) is a read of the path it was given.
 function payloadFields(files) {
   const read = new Map();
+  const defines = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/;
+  const ends = /^\s*(?:(?:\|\||\?\?)\s*\{\}\s*)?;/;
   for (const { file, abs } of files) {
-    codeLines(fs.readFileSync(abs, 'utf8')).forEach((line, index) => {
-      for (const match of line.matchAll(/\bpayload\??\.([A-Za-z_$][\w$]*)/g)) {
-        if (!read.has(match[1])) read.set(match[1], []);
-        read.get(match[1]).push(`${file}:${index + 1}`);
+    const code = codeOf(fs.readFileSync(abs, 'utf8'));
+    const roots = new Map([['payload', '']]);
+    const occurrences = () => {
+      const seen = [];
+      const root = new RegExp(`(?:^|[^\\w$.])(${[...roots.keys()].map(escapeReg).join('|')})\\b`, 'g');
+      for (const match of code.matchAll(root)) {
+        const start = match.index + match[0].length - match[1].length;
+        const { path, end } = pathAfter(code, match.index + match[0].length);
+        if (!path) continue;
+        const prefix = roots.get(match[1]);
+        const full = prefix ? `${prefix}.${path}` : path;
+        const alias = code.slice(Math.max(0, start - 40), start).match(defines);
+        seen.push({ root: match[1], full, line: lineAt(code, start), alias: alias && ends.test(code.slice(end, end + 20)) ? alias[1] : null });
       }
-    });
+      return seen;
+    };
+    let seen = occurrences();
+    for (;;) {
+      const before = roots.size;
+      for (const { full, alias } of seen) if (alias && !roots.has(alias)) roots.set(alias, full);
+      if (roots.size === before) break;
+      seen = occurrences();
+    }
+    const through = new Set(seen.map(({ root }) => root));
+    for (const { full, line, alias } of seen) {
+      if (alias && through.has(alias)) continue;
+      if (!read.has(full)) read.set(full, []);
+      const at = `${file}:${line}`;
+      if (!read.get(full).includes(at)) read.get(full).push(at);
+    }
   }
   return read;
 }
@@ -263,7 +325,7 @@ test('the inbound event shape names who, group, thread and text', () => {
   assert.ok(shape.some((f) => f.presence === 'optional'), 'optional parts are marked');
 });
 
-test('the contract names every payload field the panel reads from a slash command, a button or a form', () => {
+test('the contract names every payload field path the panel reads from a slash command, a button or a form', () => {
   const { rows, sections } = contractRows();
   const named = new Set();
   for (const name of INTERACTION_SECTIONS) {
@@ -275,9 +337,11 @@ test('the contract names every payload field the panel reads from a slash comman
   const panelFiles = new Set([...rows.values()].filter((row) => row.tag === 'panel').map((row) => row.file));
   assert.ok(panelFiles.size > 0, 'the contract tags a panel call site');
   const read = payloadFields(productionFiles().filter((entry) => panelFiles.has(entry.file)));
-  assert.ok(read.has('trigger_id') && read.has('view'), `the panel reads payload fields: ${[...read.keys()].join(', ')}`);
+  for (const path of ['trigger_id', 'actions[0].action_id', 'view.callback_id', 'view.state.values']) {
+    assert.ok(read.has(path), `the panel reads ${path}; paths read: ${[...read.keys()].join(', ')}`);
+  }
   const uncovered = [...read.entries()].filter(([field]) => !named.has(field));
-  assert.deepEqual(uncovered.map(([field, at]) => `${field} (${at.join(', ')})`), [], 'payload fields the contract does not name');
+  assert.deepEqual(uncovered.map(([field, at]) => `${field} (${at.join(', ')})`), [], 'payload field paths the contract does not name');
 });
 
 test('the email and WhatsApp fixtures fit the inbound event shape', () => {

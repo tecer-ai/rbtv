@@ -2,7 +2,7 @@
 
 The messaging contract states what Ignite performs through a messaging [connector](../../../../core/rbtv/capabilities/glossary/connector.md) today, as the [operations](../../../../core/rbtv/capabilities/glossary/operation.md) of the messaging [port](../../../../core/rbtv/capabilities/glossary/port.md), and the shape in which inbound events reach Ignite. It is written from the calls Ignite makes on its Slack client (`core/ignite/capabilities/tools/ignite/slack.js`), not from what Slack offers: every call is tagged `message` (an operation of this port), `panel` (the payment panel, operation `approval.secure`) or `ignite-internal` (the client's own session, no operation), and a part only some services have is marked optional. A connector's [adapter](../../../../core/rbtv/capabilities/glossary/adapter.md) meets this contract; `message`, the port command, will call the same operations (phase 2 of the connector architecture). Read it when writing a messaging adapter, when changing a call Ignite makes on its Slack client, or when adding a connector whose record `provides` a `message.*` or `group.*` operation.
 
-`core/ignite/capabilities/tools/ignite/test_messaging_contract.js` keeps this page true: it reads the Slack class methods, finds every place a production file under `core/ignite/` reaches one through any name that holds the client, and fails on a call site this page does not tag or a row here that no call site backs. It also checks that the Slash command and Buttons and forms sections name every payload field the panel's files read, and the fixtures beside this page against the inbound event table.
+`core/ignite/capabilities/tools/ignite/test_messaging_contract.js` keeps this page true: it reads the Slack class methods, finds every place a production file under `core/ignite/` reaches one through any name that holds the client, and fails on a call site this page does not tag or a row here that no call site backs. It also checks that the Slash command and Buttons and forms sections name every path the panel's files read from a payload, nested ones included (`view.callback_id`, `actions[0].action_id`), directly or through a name assigned from the payload, and the fixtures beside this page against the inbound event table.
 
 ## Words
 
@@ -76,7 +76,7 @@ The listener treats `connector`, `account`, `from` and `group` as the facts admi
 
 ## Slash command
 
-An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments` and `/legend` are then unreachable there. The test program reads the Field column of this table and of the next section's: every top-level field the panel's files read from a payload must appear in one of them.
+An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments` and `/legend` are then unreachable there. The test program reads the Field column of this table and of the next section's: every path the panel's files read from a payload must appear in one of them as written, whether read directly (`payload.trigger_id` is `trigger_id`) or through a name assigned from the payload (`const view = payload.view` then `view.callback_id` is `view.callback_id`; `payload.actions?.[0]` then `act.action_id` is `actions[0].action_id`). A computed index ends a path: `view.state.values[blockId]` is `view.state.values`.
 
 | Field | Presence | Read for |
 |---|---|---|
@@ -106,6 +106,7 @@ The panel's interactive payloads (Slack: an `interactive` envelope). Ignite read
 | form | `view.callback_id` | required | `payments_set_pin`, `payments_approve` or `payments_settings` |
 | form | `view.private_metadata` | required for approve and settings | The request id, or the settings revision the form showed |
 | form | `view.state.values` | required | The PIN (`payments_pin`), the mode and the limits, by block id |
+| form | `view.root_view_id` | optional | The panel under the form, refreshed once the outcome is shown; absent when the form was opened on its own |
 | form | the acknowledgement's errors or next view | optional | Field errors, or a "Checking" view, returned by `ack` before any work |
 
 ## Adapter
@@ -126,4 +127,4 @@ Slack's `capabilities/tools/slack/lib/live-status.js` is the one piece of its ad
 
 ## Checks
 
-Run `node core/ignite/capabilities/tools/ignite/test_messaging_contract.js`: it exits 0 and prints the call sites it found. When Ignite gains a call on its Slack client, add its row to the call-site table with a tag; when a call is removed, remove the row. When the panel reads a new payload field, add it to the Slash command or Buttons and forms table. When the inbound shape changes, change the table and the two fixtures together, and the adapters that deliver it. A connector's adapter passes the shape check of Building a connector.
+Run `node core/ignite/capabilities/tools/ignite/test_messaging_contract.js`: it exits 0 and prints the call sites it found. When Ignite gains a call on its Slack client, add its row to the call-site table with a tag; when a call is removed, remove the row. When the panel reads a new payload field path, add it to the Slash command or Buttons and forms table. When the inbound shape changes, change the table and the two fixtures together, and the adapters that deliver it. A connector's adapter passes the shape check of Building a connector.
