@@ -57,7 +57,8 @@ function plan(installation, manifest, { resume = false } = {}) {
     ids.add(row.id);
     if (!DISPOSITIONS.includes(row.disposition)) { bad(row, 'unknown disposition', DISPOSITIONS.join(', ')); continue; }
     if (row.original !== 'keep') bad(row, 'verbatim original not kept', 'original: "keep"');
-    if (!row.origin?.harness || !(row.origin.agent || row.origin.workspace)) bad(row, 'origin missing', 'origin with harness and agent or workspace');
+    // A harness wrote an agent's notes; a workspace file (a document or transcript) has none.
+    if (!(row.origin?.agent ? row.origin.harness : row.origin?.workspace)) bad(row, 'origin missing', 'origin with harness and agent, or workspace');
     if (['rejected-with-reason', 'retained-unmapped'].includes(row.disposition) && !String(row.reason || '').trim()) bad(row, 'reason missing', 'a reason');
     const offMachine = row.disposition === 'off-machine-pending';
     let source = null;
@@ -264,7 +265,10 @@ function rollback(installation, manifest, options) {
 
 function agentOf(manifest, rowId) { return (manifest.rows || []).find((row) => row.id === rowId)?.origin?.agent || ''; }
 
-const HELP = `usage: memory migrate dry-run|apply|rollback --installation PATH --manifest FILE [--albert-home PATH] [--resume] [--json]
+const HELP = `Imports memory from existing files (documents, transcripts, old agent notes) through a manifest:
+each record cites its source file, hash and line span, and is checked before anything is written.
+
+usage: memory migrate dry-run|apply|rollback --installation PATH --manifest FILE [--albert-home PATH] [--resume] [--json]
 (node migrate.js takes the same arguments)
 
 dry-run   check the whole manifest and print the plan; writes nothing.
@@ -273,7 +277,7 @@ rollback  stop, then remove only the records apply wrote; a record changed since
 --resume  apply again after a rollback stopped migration.
 
 Manifest: {"version":1,"cutover":{"destinations":{"<path>":"<sha256 or null>"}},"inventory":["<source>"],"rows":[{
-  "id","source","origin":{"harness","agent"|"workspace"},"hash","mtime","disposition","reason","earlier","original":"keep","duplicateOf":{"path","text"},
+  "id","source","origin":{"harness","agent"}|{"workspace"},"hash","mtime","disposition","reason","earlier","original":"keep","duplicateOf":{"path","text"},
   "records":[{"span":[first,last],"kind":"fact|agent lesson|task|operational request","scope":"personal|workspace|global",
   "verdict":{"futureAnswerEffect","usefulAfterThirtyDays","owner":"owner|task"},"destination","header","text"}]}]}
 Dispositions: ${DISPOSITIONS.join(', ')}.

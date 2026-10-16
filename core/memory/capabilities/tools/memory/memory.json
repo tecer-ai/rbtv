@@ -1,5 +1,5 @@
 {
   "name": "memory",
-  "description": "Reads the canonical board and its bounded view, checks a memory proposal, publishes only when every requirement passes, and restores a missing agent memory baseline.",
+  "description": "Agent memory from one command: reads and writes boards, prepares an agent's memory bundle, captures what the owner asks to remember, records commitments, checks and publishes memory proposals, imports memory from existing files (documents, transcripts, old notes) through a checked manifest with rollback, and restores a missing memory baseline.",
   "entry": "memory.js"
 }

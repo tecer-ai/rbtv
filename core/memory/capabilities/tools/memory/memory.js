@@ -42,7 +42,8 @@ const HELP = {
   rule         Publish one approved global learned rule.
   limit        Check always-loaded and on-demand limits.
   baseline     Restore a missing agent memory baseline. Does not commit.
-  migrate      Dry-run, apply or roll back a memory migration manifest.
+  migrate      Import memory from existing files (documents, transcripts, old notes):
+               dry-run, apply or roll back a checked manifest.
 
 Proposal field names are taught by the consolidation tool's -h, not here.
 A refusal lists every failed requirement this command could check.

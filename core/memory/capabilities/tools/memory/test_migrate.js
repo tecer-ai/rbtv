@@ -368,4 +368,20 @@ test('memory migrate dry-run gives the same result as node migrate.js dry-run', 
   assert.equal(spawnSync(process.execPath, [path.join(__dirname, 'memory.js'), 'migrate', '-h'], { encoding: 'utf8' }).stdout.includes('Manifest:'), true);
 });
 
+test('a workspace document imports without a harness; an agent note still needs one', (w) => {
+  const doc = path.join(w.dir, 'docs', 'session.md');
+  write(doc, '# Session\nOwner said he prefers green tea.\n');
+  const row = (origin) => ({
+    id: 'r-doc', source: doc, origin, hash: sha(fs.readFileSync(doc)), mtime: 1, disposition: 'migrated', original: 'keep',
+    records: [{ span: [2, 2], kind: 'fact', scope: 'workspace', verdict: w.keep, destination: '.rbtv/memory/knowledge/preferences.md', text: '- green tea (2026-09-15 · docs/session.md)' }],
+  });
+  w.save([row({ workspace: 'vault' })]);
+  ok(w.run('apply'));
+  assert.match(w.read('.rbtv/memory/knowledge/preferences.md'), /green tea/);
+  w.save([{ ...row({ agent: 'gaming' }), id: 'r-note' }]);
+  const refused = w.run('dry-run');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /origin missing/);
+});
+
 if (failed.length) { process.stderr.write(`${failed.length} failed\n`); process.exit(1); }
