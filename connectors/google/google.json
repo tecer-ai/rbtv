@@ -19,7 +19,20 @@
   ],
   "provides": [
     "message.send",
-    "message.history"
+    "message.history",
+    "calendar.list",
+    "calendar.create",
+    "calendar.update",
+    "calendar.delete",
+    "calendar.restore",
+    "storage.list",
+    "storage.search",
+    "storage.download",
+    "storage.upload",
+    "storage.create-folder",
+    "storage.move",
+    "storage.trash",
+    "storage.list-drives"
   ],
   "repository": {
     "url": "https://github.com/tecer-ai/google-tools",
