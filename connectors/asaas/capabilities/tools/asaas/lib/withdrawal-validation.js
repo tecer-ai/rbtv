@@ -2,8 +2,8 @@
 
 // Asaas's half of Ignite's withdrawal validation. About 5 seconds after an outgoing operation, Asaas
 // POSTs it to the account's validation URL and executes it only on APPROVED. Ignite's waking service
-// loads this file by the provider name asaas (core/ignite/capabilities/tools/ignite/payment-webhook.js
-// loadProvider) and answers from its payment gate; this file only says where Asaas calls, which header
+// loads this file by the connector name asaas (core/ignite/capabilities/tools/ignite/payment-webhook.js
+// loadConnector) and answers from its payment gate; this file only says where Asaas calls, which header
 // and variable hold the token, and how Asaas's body reads as an operation the gate can check.
 //
 // API

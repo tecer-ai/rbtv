@@ -441,7 +441,7 @@ options:
   --<port> NAME         when a chosen component needs an operation that
                         more than one component provides, the one that
                         installs it, by the port's name: --messaging slack.
-                        One provider installs with no flag; several and no
+                        One component installs with no flag; several and no
                         flag ask you at a terminal and are refused otherwise
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
@@ -788,7 +788,7 @@ options:
                         is AGENT's own harness
   --<port> NAME         when a NAME needs an operation that more than one
                         component provides, the one that installs it, by
-                        the port's name: --messaging slack. One provider
+                        the port's name: --messaging slack. One component
                         installs with no flag and is recorded as the
                         agent's own file; several and no flag are refused
   --json                one JSON value on standard output, success or

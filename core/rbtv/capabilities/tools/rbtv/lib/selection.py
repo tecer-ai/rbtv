@@ -242,10 +242,30 @@ def parts_of_components(catalog: dict[str, dict], components) -> set[str]:
     return {p["key"] for p in iter_catalog_parts(catalog) if p["component"] in wanted}
 
 
-def _port_of(catalog: dict[str, dict], components: list[str], operation: str) -> str:
-    """The port a need's flag is named after: the one `type` every component shares, else the operation's noun."""
-    types = {catalog[p].get("type") for p in components if catalog[p].get("type")}
-    return types.pop() if len(types) == 1 else operation.split(".", 1)[0]
+def declared_ports(record: dict) -> set[str]:
+    """Port flag names declared by a component, shared with the parser."""
+    return {p for p in [record.get("type"), *(record.get("serves") or [])]
+            if isinstance(p, str) and re.fullmatch(r"[a-z][a-z0-9-]*", p)}
+
+
+def _port_of(catalog: dict[str, dict], components: list[str], operation: str,
+             choices: dict) -> str:
+    """Use a declared port common to every supplying component; never guess from an operation."""
+    common = set.intersection(*(declared_ports(catalog[c]) for c in components))
+    selected = common & choices.keys()
+    if not common:
+        raise Refuse("needs-choice", f"{operation} has no common declared port among {', '.join(components)}; "
+                     "correct their type/serves records or select a supplying component explicitly")
+    if len(selected) > 1:
+        raise Refuse("needs-choice", f"{operation} has conflicting port flags: "
+                     f"{', '.join('--' + p for p in sorted(selected))}; give one port flag")
+    if len(selected) == 1:
+        return selected.pop()
+    if len(common) == 1:
+        return common.pop()
+    options = " or ".join(f"--{p} NAME" for p in sorted(common))
+    raise Refuse("needs-choice", f"{operation} has ambiguous declared ports: {', '.join(sorted(common))}; "
+                 f"give one of {options} to choose the supplying component")
 
 
 def resolve_needs(catalog: dict[str, dict], picked, installed, choices: dict | None = None,
@@ -278,7 +298,7 @@ def resolve_needs(catalog: dict[str, dict], picked, installed, choices: dict | N
             if len(components) == 1:
                 chosen = components[0]
             else:
-                port = _port_of(catalog, components, op)
+                port = _port_of(catalog, components, op, choices)
                 names = {catalog[p]["component"]: p for p in components}
                 flag = f"--{port}"
                 options = " or ".join(f"{flag} {name}" for name in names)

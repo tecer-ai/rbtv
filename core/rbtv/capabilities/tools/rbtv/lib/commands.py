@@ -845,7 +845,7 @@ def cmd_configure(args, target: Path, catalog: dict, shadowed: list,
 
 
 def _needs_ask(args, ask):
-    """The question a person is asked between two providers of a need: the caller's `ask`, else the
+    """The question a person is asked between two supplying components of a need: the caller's `ask`, else the
     terminal's menu when one is attached and the answer is not JSON, else None (the agent path refuses)."""
     if ask is not None:
         return ask
@@ -906,7 +906,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     pack_parts = pack_files(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
-    # A need of a picked component is met by installing the component that provides it (one provider), by
+    # A need of a picked component is met by installing the component that provides it (one supplying component), by
     # the --<port> NAME flag or a person's answer (several), never by a guess.
     needs = resolve_needs(catalog, picked, (state.get("components") or {}).keys(),
                           getattr(args, "port_choices", None), _needs_ask(args, ask))

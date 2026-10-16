@@ -13,6 +13,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+// Every policy lookup is intercepted too; an unexpected HTTP call fails the test.
+global.fetch = async (url, opts) => {
+  assert.equal(String(url).split('/').pop(), 'conversations.info');
+  const channel = new URLSearchParams(opts.body).get('channel');
+  return { ok: true, json: async () => ({ ok: true, channel: { id: channel, is_im: true, user: channel === 'D0OWNERDM1' ? 'U0OWNER001' : 'U0OTHER' } }) };
+};
+
 const PROGRAM = path.join(__dirname, 'message.js');
 const SEND = path.join(__dirname, 'lib', 'send.js');
 const { example } = require('../../../../../core/cast/capabilities/tools/cast/example-models');
@@ -117,6 +124,8 @@ function fixture() {
     slack: { team: 'T0BJAM8PACU', botUserId: 'U0BOTSARA1', ownerUserId: 'U0OWNER001', appTokenEnv: 'A', botTokenEnv: 'B', ownerTokenEnv: 'C', stoolsWorkspace: 'w' },
     tools: { cast: 'cast', stools: 'slack', audio: 'elevenlabs' }, dmAgent: 'master', routes: { C0SARA0001: 'sara' },
   }));
+  fs.mkdirSync(path.join(installation, '.rbtv', 'config', 'env'), { recursive: true });
+  fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'env', '.env'), 'SLACK_BOT_TOKEN=xoxb-fixture-only\n');
   const home = path.join(installation, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(path.join(home, 'out'), { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:' }));
@@ -338,10 +347,9 @@ test('S6: --via names a connector without an adapter, or an unknown name', async
   assert.deepEqual(fx.calls(), []);
 });
 
-test('S8: the adapter refuses an address that is not its form; the why line is the adapter\'s sentence', async () => {
+test('S8: Slack address errors are classified locally before adapter loading', async () => {
   const fx = fixture();
-  // The specification's own example: a mail address through slack reaches S8, not S9 (the address form is
-  // checked before the permission: an address no connector takes can have no permission entry).
+  // S8's shape error is local to the port; it grants no adapter access.
   const mail = await run(fx, ['send', '--to', 'pia@example.com', '--via', 'slack', 'Oi']);
   assert.equal(mail.code, 1);
   assert.deepEqual(lines(mail.err), [
@@ -356,10 +364,12 @@ test('S8: the adapter refuses an address that is not its form; the why line is t
   const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'whatsapp', 'Oi']);
   assert.equal(r.code, 1);
   assert.deepEqual(lines(r.err), [
-    'message: send refused: whatsapp does not take the address U0OWNER001',
-    '  why: whatsapp addresses are a number with country code (5511912345678) or a group (...@g.us); U0OWNER001 is neither',
-    '  fix: message send --to U0OWNER001 --via slack TEXT, or an address in whatsapp\'s form',
+    'message: send refused: no permission to message U0OWNER001',
+    '  why: until the permission ladder exists, this agent may message the owner and its own channel only',
+    "  fix: ask the owner; a contact's permission is set in /messages once it exists",
   ]);
+  assert.equal(r.out, '');
+  assert.equal(require.cache[path.join(fx.root, 'connectors', 'whatsapp', 'capabilities', 'tools', 'whatsapp', 'lib', 'messaging.js')], undefined);
 });
 
 test('S5 first use: no messaging connector with an adapter, any verb', async () => {
@@ -672,7 +682,7 @@ test('a messaging connector in the installation\'s mirror is a candidate, and a 
   assert.deepEqual(lines(gone.err).slice(0, 2), ['message: send refused: no connector named "slack"', '  why: the messaging connectors installed here are: whatsapp']);
 });
 
-test('a mirror-only connector is discovered and delivers through its own adapter', async () => {
+test('a mirror-only connector is discovered but cannot borrow Slack permissions', async () => {
   const fx = fixture();
   const folder = path.join(fx.installation, '.rbtv', 'mirror', 'connectors', 'chat');
   const lib = path.join(folder, 'capabilities', 'tools', 'chat', 'lib');
@@ -685,8 +695,12 @@ test('a mirror-only connector is discovered and delivers through its own adapter
   state.components['connectors/chat'] = {};
   fs.writeFileSync(book, JSON.stringify(state));
   const r = await run(fx, ['--json', 'send', '--to', 'C0SARA0001', '--via', 'chat', 'Hello']);
-  assert.equal(r.code, 0, r.err);
-  assert.equal(JSON.parse(r.out).ref, 'chat:mirror-account:C0SARA0001:mirror-id');
+  assert.equal(r.code, 1, r.err);
+  assert.equal(r.out, '');
+  assert.match(r.err, /no permission/);
+  assert.equal(require.cache[path.join(lib, 'messaging.js')], undefined);
+  const help = await run(fx, ['-h']);
+  assert.match(help.out, /chat \(installed\)/);
 });
 
 test('real Slack adapter integration: S8, S4 JSON, identity-before-post, and files-only replies echo the resolved root', async () => {
@@ -706,6 +720,7 @@ test('real Slack adapter integration: S8, S4 JSON, identity-before-post, and fil
     calls.push({ method, params });
     let data;
     if (method === 'auth.test') data = identityFails ? { ok: false, error: 'invalid_auth' } : { ok: true, team_id: 'T0BJAM8PACU' };
+    else if (method === 'conversations.info') data = { ok: true, channel: { id: params.channel, is_im: true, user: 'U0OWNER001' } };
     else if (method === 'conversations.open') data = { ok: true, channel: { id: 'D0OWNERDM1' } };
     else if (method === 'chat.postMessage') data = { ok: true, channel: params.channel, ts: '1792160100.000400' };
     else if (method === 'conversations.replies') data = { ok: true, messages: [{ ts: '1792160000.000100', text: 'parent first' }] };
@@ -746,6 +761,141 @@ test('real Slack adapter integration: S8, S4 JSON, identity-before-post, and fil
     else process.env.SLACK_BOT_TOKEN = originalToken;
     delete require.cache[real];
   }
+});
+
+// These probes wrap the real adapter only to observe loading and calls. HTTP is intercepted;
+// permission comes from the fixture config and Slack conversation metadata, never a message author.
+async function realProbe(fn) {
+  const fx = fixture();
+  const real = path.resolve(__dirname, '../../../../slack/capabilities/tools/slack/lib/messaging.js');
+  const observed = path.join(fx.lib, 'observed.json');
+  fs.writeFileSync(observed, '[]');
+  delete require.cache[real];
+  fs.writeFileSync(path.join(fx.lib, 'messaging.js'), `
+    const fs = require('node:fs');
+    const record = (value) => { const p = ${JSON.stringify(observed)}; const a = JSON.parse(fs.readFileSync(p)); a.push(value); fs.writeFileSync(p, JSON.stringify(a)); };
+    record('load');
+    const real = require(${JSON.stringify(real)});
+    module.exports = { ...real, address: (...args) => { record('address'); return real.address(...args); },
+      account: (...args) => { record('account'); return real.account(...args); },
+      operations: Object.fromEntries(Object.entries(real.operations).map(([name, fn]) => [name, (...args) => { record(name); return fn(...args); }])) };
+  `);
+  const savedFetch = global.fetch;
+  const savedToken = process.env.SLACK_BOT_TOKEN;
+  process.env.SLACK_BOT_TOKEN = 'xoxb-isolated-test';
+  const calls = [];
+  const state = { team: 'T0BJAM8PACU', missing: false, fileFails: false, info: null };
+  global.fetch = async (url, opts) => {
+    const method = String(url).split('/').pop();
+    const params = typeof opts.body === 'string' ? Object.fromEntries(new URLSearchParams(opts.body)) : {};
+    calls.push({ method, params });
+    let data;
+    if (method === 'auth.test') data = { ok: true, team_id: state.team };
+    else if (method === 'conversations.info') data = { ok: true, channel: state.info || { id: params.channel, is_im: true, user: params.channel === 'D0OWNERDM1' ? 'U0OWNER001' : 'U0OTHER' } };
+    else if (method === 'conversations.open') data = { ok: true, channel: { id: 'D0OWNERDM1' } };
+    else if (method === 'conversations.replies') data = state.missing ? { ok: false, error: 'thread_not_found' } : { ok: true, messages: [{ ts: params.ts, thread_ts: '1792160000.000100', user: 'U0BOTSARA1', text: 'reply' }] };
+    else if (method === 'chat.postMessage') data = { ok: true, channel: params.channel, ts: '1792160060.000300' };
+    else if (method === 'files.getUploadURLExternal') data = state.fileFails ? { ok: false, error: 'file_too_large' } : { ok: true, file_id: 'F1', upload_url: 'https://intercepted/upload' };
+    else if (method === 'upload') data = {};
+    else if (method === 'files.completeUploadExternal') data = { ok: true, files: [{ shares: { private: { [params.channel_id]: [{ ts: '1792160060.000301' }] } } }] };
+    else throw new Error('unexpected HTTP: ' + method);
+    return { ok: true, json: async () => data };
+  };
+  try { await fn({ fx, calls, state, effects: () => JSON.parse(fs.readFileSync(observed, 'utf8')) }); }
+  finally {
+    global.fetch = savedFetch;
+    if (savedToken === undefined) delete process.env.SLACK_BOT_TOKEN; else process.env.SLACK_BOT_TOKEN = savedToken;
+    delete require.cache[real];
+  }
+}
+
+for (const to of ['U0OTHER', 'D0OTHERDM1', 'C0OTHER0001', 'bad@example.com']) {
+  test(`denied send ${to}: zero adapter load/address/account/operation effects`, () => realProbe(async ({ fx, effects, calls }) => {
+    const r = await run(fx, ['send', '--via', 'slack', '--to', to, 'hello']);
+    assert.equal(r.code, 1);
+    assert.equal(r.out, '');
+    assert.deepEqual(effects(), [], 'authorization must precede adapter loading and address()');
+    assert.deepEqual(calls, []);
+  }));
+}
+for (const [account, conversation] of [['TWRONG', 'C0SARA0001'], ['T0BJAM8PACU', 'D0OTHERDM1'], ['T0BJAM8PACU', 'C0OTHER0001']]) {
+  test(`denied reply ${account}:${conversation}: zero adapter effects`, () => realProbe(async ({ fx, effects }) => {
+    const r = await run(fx, ['reply', '--thread', `slack:${account}:${conversation}:1792160030.000200`, 'hello']);
+    assert.equal(r.code, 1);
+    assert.equal(r.out, '');
+    assert.deepEqual(effects(), [], 'reference values are not permission');
+  }));
+}
+for (const verb of ['reply', 'history']) {
+  test(`${verb}: actual token account must match configured/reference account`, () => realProbe(async ({ fx, state, calls }) => {
+    state.team = 'TOTHER';
+    const r = await run(fx, [verb, '--thread', 'slack:T0BJAM8PACU:C0SARA0001:1792160030.000200', ...(verb === 'reply' ? ['hello'] : [])]);
+    assert.equal(r.code, 1);
+    assert.equal(r.out, '');
+    assert.equal(calls.filter(c => ['chat.postMessage', 'conversations.replies'].includes(c.method)).length, 0);
+  }));
+  test(`${verb}: forged reference account is refused before adapter loading`, () => realProbe(async ({ fx, effects }) => {
+    const r = await run(fx, [verb, '--thread', 'slack:TWRONG:C0SARA0001:1792160030.000200', ...(verb === 'reply' ? ['hello'] : [])]);
+    assert.equal(r.code, 1);
+    assert.equal(r.out, '');
+    assert.deepEqual(effects(), []);
+  }));
+}
+test('send: actual token account must match configured account', () => realProbe(async ({ fx, state, calls }) => {
+  state.team = 'TOTHER';
+  const r = await run(fx, ['send', '--via', 'slack', '--to', 'U0OWNER001', 'hello']);
+  assert.equal(r.code, 1);
+  assert.equal(r.out, '');
+  assert.equal(calls.filter(c => c.method === 'chat.postMessage').length, 0);
+}));
+for (const info of [{ id: 'D0OWNERDM1', is_im: false, user: 'U0OWNER001' }, { id: 'DOTHER', is_im: true, user: 'U0OWNER001' }]) {
+  test(`DM metadata ${JSON.stringify(info)} is not owner authority`, () => realProbe(async ({ fx, state, effects }) => {
+    state.info = info;
+    const r = await run(fx, ['reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', 'hello']);
+    assert.equal(r.code, 1);
+    assert.deepEqual(effects(), []);
+  }));
+}
+test('real Slack: approved owner and own channel send/reply, including non-root references', () => realProbe(async ({ fx, calls }) => {
+  for (const to of ['U0OWNER001', 'C0SARA0001']) {
+    const sent = await run(fx, ['--json', 'send', '--via', 'slack', '--to', to, 'hello']);
+    assert.equal(sent.code, 0, sent.err);
+    const conversation = JSON.parse(sent.out).conversation;
+    const reply = await run(fx, ['--json', 'reply', '--thread', `slack:T0BJAM8PACU:${conversation}:1792160030.000200`, 'reply']);
+    assert.equal(reply.code, 0, reply.err);
+    assert.equal(JSON.parse(reply.out).thread, '1792160000.000100');
+    assert.equal(calls.filter(c => c.method === 'chat.postMessage').at(-1).params.thread_ts, '1792160000.000100');
+  }
+}));
+test('history retains accessible other conversations without granting writes', () => realProbe(async ({ fx }) => {
+  const history = await run(fx, ['--json', 'history', '--thread', 'slack:T0BJAM8PACU:C0OTHER0001:1792160030.000200']);
+  assert.equal(history.code, 0, history.err);
+  assert.equal(JSON.parse(history.out).events[0].account, 'T0BJAM8PACU');
+}));
+test('real Slack files-only missing-thread reply preserves S10 and history guidance', () => realProbe(async ({ fx, state, calls }) => {
+  state.missing = true;
+  for (const json of [[], ['--json']]) {
+    const r = await run(fx, [...json, 'reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', '--file', path.join(fx.home, 'out', 'P-0003.pdf')]);
+    assert.equal(r.code, 1);
+    assert.equal(r.out, '');
+    assert.match(r.err, /reply failed: thread not found/);
+    assert.match(r.err, /fix: message history --thread REF/);
+    assert.doesNotMatch(r.err, /same command again/);
+  }
+  assert.equal(calls.filter(c => c.method.startsWith('files.') || c.method === 'chat.postMessage').length, 0, 'thread resolution fails before upload');
+}));
+test('real Slack partial reply preserves the delivered text and failed upload', () => realProbe(async ({ fx, state }) => {
+  state.fileFails = true;
+  const r = await run(fx, ['--json', 'reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', 'hello', '--file', path.join(fx.home, 'out', 'P-0003.pdf')]);
+  assert.equal(r.code, 1);
+  const body = JSON.parse(r.out);
+  assert.equal(body.id, '1792160060.000300');
+  assert.equal(body.files[0].error, 'file_too_large');
+  assert.match(r.err, /the text is delivered/);
+}));
+test('shared send preserves the original Error object on a files-only total failure', async () => {
+  const original = Object.assign(new Error('thread absent'), { code: 'thread', reason: 'thread_not_found', extra: 17 });
+  await assert.rejects(require(SEND).send({ 'message.send': async () => {}, 'message.file': async () => { throw original; } }, { group: 'C1', thread: '1.1', files: ['a.pdf'] }), error => error === original);
 });
 
 (async () => {

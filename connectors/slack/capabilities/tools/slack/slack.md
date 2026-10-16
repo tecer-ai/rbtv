@@ -12,7 +12,7 @@ Write messages in standard Markdown. Send and upload dry runs show the complete 
 
 Text uses Slack's native `markdown_text` field. Upload captions use a `markdown` block, without `initial_comment`, which would override it. Broadcast uploads post the caption once through the text path. The tool does not guess a second input format or silently retry a failed write in another format. Slack determines visual rendering; headings share one size and Markdown images become links. Maintainers should check [chat messages](https://docs.slack.dev/reference/methods/chat.postMessage/), [Markdown blocks](https://docs.slack.dev/reference/block-kit/blocks/markdown-block/) and [upload completion](https://docs.slack.dev/reference/methods/files.completeUploadExternal/) before changing these fields.
 
-Reply in the thread the request belongs to. File conversion is handled by its provider, such as `elevenlabs`; Slack transfers the resulting local file. Ignite replies go through `replies[].text` and `replies[].files`, not a second manual post; Ignite owns that delivery contract.
+Reply in the thread the request belongs to. File conversion is handled by its connector, such as `elevenlabs`; Slack transfers the resulting local file. Ignite replies go through `replies[].text` and `replies[].files`, not a second manual post; Ignite owns that delivery contract.
 
 ## Messages to a contact
 

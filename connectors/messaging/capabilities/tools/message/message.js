@@ -4,17 +4,15 @@
 // message — the port command of the messaging port (connectors/messaging): an agent sends a message to one
 // address as itself, replies inside a thread it has, reads a thread. It picks the connector --via names among
 // the installation's messaging connectors (the repository's connectors/ and the installation's .rbtv/mirror/,
-// the mirror's record replacing the repository's whole), asks its adapter whether the address is the
-// connector's form, checks who may be messaged, resolves the connector's account identity, and only then
+// the mirror's record replacing the repository's whole), checks permission before loading its adapter,
+// confirms the connector's account identity, and only then
 // hands the delivery to the adapter (connectors/<name>/capabilities/tools/<name>/lib/messaging.js) through the
 // one send function it shares with Ignite's outbox (lib/send.js). Specification: projects' spec-message.md,
 // phase 2 of the connector architecture; `message -h` is the interface reference.
 //
-// The order of the checks: the address form (S8) before the permission (S9), both before any operation runs:
-// classifying an address is local to the adapter (no token, no network), and an address no connector takes
-// can have no permission entry, so the refusal names the real reason. The account identity is read before
-// the post, so a send that fails after a post never hides its reference behind a later failure; a send that
-// delivered nothing is a failure that says so, never a reference to a message that does not exist.
+// Both outbound verbs authorize from Ignite's configured team, owner and routes before loading any
+// adapter. A DM reply checks Slack's conversation metadata in the port, never a reference or message
+// sender. Reference consumers also bind the configured and actual accounts before reading or writing.
 //
 // API
 // main(argv, deps?) → Promise<exit code>. deps: root (the folder holding connectors/, this repository),
@@ -27,6 +25,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const sendModule = require('./lib/send.js');
+const { envValue } = require('../../../../../core/ignite/capabilities/tools/ignite/config.js');
 
 const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const VERBS = ['send', 'reply', 'history'];
@@ -354,17 +353,81 @@ function checkFiles(opts, verb) {
 
 // ───────────────────────────────────────────────────────────── the permission (phase 2 rule 3.4)
 
-function permission(installation, home, to) {
-  const config = installation ? readJson(path.join(installation, '.rbtv', 'config', 'ignite', 'config.json')) : null;
-  const owner = config?.slack?.ownerUserId || null;
-  const slug = home ? path.basename(home) : null;
-  const channels = slug && config?.routes ? Object.entries(config.routes).filter(([, agent]) => agent === slug).map(([id]) => id) : [];
-  const allowed = new Set([owner, ...channels].filter(Boolean));
-  if (allowed.has(to)) return;
-  const where = config ? '' : `; Ignite's config.json names neither here (${installation ? path.join(installation, '.rbtv', 'config', 'ignite', 'config.json') : 'no installation found'})`;
-  throw refuse(`send refused: no permission to message ${to}`,
-    `until the permission ladder exists, this agent may message the owner${owner ? ` (${owner})` : ''} and its own channel${channels.length ? ` (${channels.join(', ')})` : ''} only${where}`,
+function policyConfig(ctx) {
+  return ctx.installation ? readJson(path.join(ctx.installation, '.rbtv', 'config', 'ignite', 'config.json')) : null;
+}
+
+function referenceAccount(ctx, ref, verb) {
+  const team = ref.connector === 'slack' ? policyConfig(ctx)?.slack?.team : null;
+  if (team && ref.account !== team) {
+    throw refuse(`${verb} refused: reference account does not match the configured account`,
+      `the reference names ${ref.account}; Ignite config names ${team}`,
+      'copy the Ref line from this account; nothing was sent');
+  }
+}
+
+// An authoritative contact binding is conversation metadata from Slack, not the author of a message.
+// This is a read-only policy lookup in the port, before adapter loading. Config/store do not keep the
+// bot-to-owner DM id: routes name groups; stored messages record senders, not a DM's contact. Use the
+// same token and endpoint as the adapter, and refuse unknown/malformed metadata without delivery.
+async function ownerConversation(ctx, conversation, owner) {
+  const token = envValue(ctx.installation, 'SLACK_BOT_TOKEN');
+  if (!token) throw new Error('SLACK_BOT_TOKEN is not set; cannot verify the direct conversation');
+  const response = await fetch(`${process.env.SLACK_API_URL || 'https://slack.com/api'}/conversations.info`, {
+    method: 'POST', signal: AbortSignal.timeout(10_000),
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ channel: conversation }).toString(),
+  });
+  if (!response.ok) throw new Error(`Slack conversation verification: HTTP ${response.status}`);
+  const data = await response.json();
+  if (!data.ok) throw new Error(`Slack conversation verification: ${data.error || 'unknown_error'}`);
+  return data.channel?.id === conversation && data.channel.is_im === true && data.channel.user === owner;
+}
+
+async function permission(ctx, connector, to, verb) {
+  const config = policyConfig(ctx);
+  // Phase 2 has grants for the configured Slack account only. A mirror/other connector cannot
+  // borrow Slack ids as its own permissions; its grants arrive with that port's contact book.
+  const owner = connector.name === 'slack' ? config?.slack?.ownerUserId || null : null;
+  const slug = ctx.home ? path.basename(ctx.home) : null;
+  const channels = connector.name === 'slack' && slug && config?.routes
+    ? Object.entries(config.routes).filter(([id, agent]) => agent === slug && /^[CG][A-Z0-9]+$/.test(id)).map(([id]) => id) : [];
+  if (config?.slack?.team && (channels.includes(to) || (verb === 'send' && owner && to === owner))) return;
+  let verification = '';
+  if (verb === 'reply' && owner && config?.slack?.team && /^D[A-Z0-9]+$/.test(to)) {
+    try { if (await ownerConversation(ctx, to, owner)) return; }
+    catch (error) { verification = `; ${error.message}`; }
+  }
+  const where = config ? '' : `; Ignite's config.json names neither here (${ctx.installation ? path.join(ctx.installation, '.rbtv', 'config', 'ignite', 'config.json') : 'no installation found'})`;
+  throw refuse(`${verb} refused: no permission to message ${to}`,
+    `until the permission ladder exists, this agent may message the owner${owner ? ` (${owner})` : ''} and its own channel${channels.length ? ` (${channels.join(', ')})` : ''} only${where}${verification}`,
     "ask the owner; a contact's permission is set in /messages once it exists");
+}
+
+async function accountOf(adapter, ctx, connector, verb, ref = null) {
+  let account;
+  try {
+    account = typeof adapter.account === 'function' ? await adapter.account() : null;
+    if (typeof account !== 'string' || !account.trim() || account.includes(':')) throw new Error('the connector did not confirm its account identity');
+  } catch (error) {
+    throw refuse(`${verb} failed: ${connector.name} did not answer`, error.message, 'run the same command again; nothing was sent');
+  }
+  const configured = connector.name === 'slack' ? policyConfig(ctx)?.slack?.team : null;
+  if ((ref && account !== ref.account) || (configured && account !== configured)) {
+    throw refuse(`${verb} refused: connector account does not match`,
+      `the connector answered ${account}; expected ${ref?.account || configured}`,
+      'use the configured account and a reference from it; nothing was sent');
+  }
+  return account;
+}
+
+// Preserve S8 locally without loading connector code to classify an unauthorized address.
+function checkAddress(all, connector, to) {
+  if (connector.name !== 'slack' || /^[UWCGD][A-Z0-9]+$/.test(to)) return;
+  const other = candidates(all).find((c) => c.name !== connector.name);
+  throw refuse(`send refused: slack does not take the address ${to}`,
+    `slack addresses are a user id (U...) or a channel id (C...); ${to.includes('@') ? "a mail address is google's" : `${to} is neither`}`,
+    `message send --to ${to} --via ${other ? other.name : 'CONNECTOR'} TEXT, or an address in slack's form`);
 }
 
 // ───────────────────────────────────────────────────────────── output
@@ -443,8 +506,10 @@ async function doSend(io, parsed, ctx) {
   }
   const files = checkFiles(opts, 'send');
   const connector = selectConnector(ctx.all, opts.via, 'send', to);
+  checkAddress(ctx.all, connector, to);
+  await permission(ctx, connector, to, 'send');
   const adapter = loadAdapter(connector);
-  // The address form (S8) first, then the permission (S9): both local, before any operation runs.
+
   let where;
   try {
     where = typeof adapter.address === 'function' ? adapter.address(to) : { group: to };
@@ -456,16 +521,9 @@ async function doSend(io, parsed, ctx) {
     }
     throw error;
   }
-  permission(ctx.installation, ctx.home, to);
   // The account identity before the post: a reference needs it, so a post is never followed by a failure
   // that would hide the reference of a message that exists.
-  let account;
-  try {
-    account = typeof adapter.account === 'function' ? await adapter.account() : null;
-    if (typeof account !== 'string' || !account.trim() || account.includes(':')) throw new Error('the connector did not confirm its account identity');
-  } catch (error) {
-    throw refuse(`send failed: ${connector.name} did not answer`, error.message, 'run the same command again; nothing was sent');
-  }
+  const account = await accountOf(adapter, ctx, connector, 'send');
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
@@ -491,7 +549,10 @@ async function doReply(io, parsed, ctx) {
   if (!candidates(ctx.all).length) selectConnector(ctx.all, null, 'reply');
   const ref = parseRef(opts.thread, 'reply');
   const connector = connectorOf(ctx.all, ref.connector, 'reply');
+  referenceAccount(ctx, ref, 'reply');
+  await permission(ctx, connector, ref.conversation, 'reply');
   const adapter = loadAdapter(connector);
+  const account = await accountOf(adapter, ctx, connector, 'reply', ref);
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
@@ -502,8 +563,8 @@ async function doReply(io, parsed, ctx) {
   }
   // thread is the thread's root as the connector resolved it: a reply's reference names its thread's root.
   const out = {
-    connector: connector.name, account: ref.account, to: null, conversation: result.conversation, thread: result.thread ?? ref.id, id: result.id,
-    ref: refOf(connector.name, ref.account, result.conversation, result.id),
+    connector: connector.name, account, to: null, conversation: result.conversation, thread: result.thread ?? ref.id, id: result.id,
+    ref: refOf(connector.name, account, result.conversation, result.id),
     as: as?.name || null, files: result.files.map((f) => (f.error ? { path: f.path, id: null, error: f.error } : { path: f.path, id: f.id })),
   };
   emitSent(io, parsed.json, 'reply', { body: out, threadRef: ref.ref, textAsFile: result.textAsFile });
@@ -516,7 +577,9 @@ async function doHistory(io, parsed, ctx) {
   if (!candidates(ctx.all).length) selectConnector(ctx.all, null, 'history');
   const ref = parseRef(opts.thread, 'history');
   const connector = connectorOf(ctx.all, ref.connector, 'history');
+  referenceAccount(ctx, ref, 'history');
   const adapter = loadAdapter(connector);
+  await accountOf(adapter, ctx, connector, 'history', ref);
   if (typeof adapter.operations['message.history'] !== 'function') {
     throw refuse(`history refused: ${connector.name} does not provide message.history`, `the ${connector.name} record lists no message.history under provides`, 'read the thread in the service itself');
   }

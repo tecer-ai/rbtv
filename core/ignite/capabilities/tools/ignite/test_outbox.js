@@ -396,7 +396,7 @@ function messageCaller() {
   fs.writeFileSync(path.join(root, 'connectors', 'slack', 'capabilities', 'tools', 'slack', 'lib', 'messaging.js'), DIVERGENCE_STUB);
   fs.mkdirSync(path.join(installation, '.rbtv', 'config', 'ignite'), { recursive: true });
   fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'install.json'), JSON.stringify({ schema: 6, components: { 'connectors/slack': {} } }));
-  fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify({ slack: { ownerUserId: 'UOWNER' }, routes: {} }));
+  fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify({ slack: { team: 'T1', ownerUserId: 'UOWNER' }, routes: {} }));
   const home = path.join(installation, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', external_name: 'Brigid', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:' }));

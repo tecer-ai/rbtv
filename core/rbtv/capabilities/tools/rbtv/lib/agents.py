@@ -629,7 +629,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     `given` holds --harness, --model and --effort; `on` the --on values of the
     agents named among the files. A need of a component among the files is met
     by the component that provides it, which the folder records as its own
-    file: one provider installs; several take `port_choices` ({port: name},
+    file: one supplying component installs; several take `port_choices` ({port: name},
     the --<port> NAME flag) or `ask`, and refuse without either."""
     part = unplaced_shipped_agent(root, raw, catalog)
     home = agent_home(root, raw) if part else resolve_agent(root, raw)

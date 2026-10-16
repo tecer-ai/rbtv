@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
-import re
 
 from discovery import Refuse
 
@@ -16,9 +15,7 @@ from .constants import (BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES
                         LISTING_TYPES, REPO_ROOT, ROOT_UPDATE_SCOPES, VERSION)
 from .help_pages import PAGES
 from .subagents import ON_FORM
-
-
-PORT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+from .selection import declared_ports
 
 
 def port_names(catalog: dict | None = None) -> list[str]:
@@ -39,9 +36,7 @@ def port_names(catalog: dict | None = None) -> list[str]:
             if isinstance(data, dict):
                 records.append(data)
     for data in records:
-        for value in [data.get("type"), *(data.get("serves") or [])]:
-            if isinstance(value, str) and PORT_NAME.match(value):
-                found.add(value)
+        found.update(declared_ports(data))
     return sorted(found)
 
 

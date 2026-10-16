@@ -1,6 +1,6 @@
 """Needs resolution, the positive half: `rbtv add` and `rbtv agent add` of a
 component whose `needs` names an operation install the one component that
-provides it; with two providers a person is asked, and the agent path takes
+provides it; with two supplying components a person is asked, and the agent path takes
 `--<port> NAME` (`--messaging talker`) and refuses without it, naming the
 choices. Phase 2 of the connector architecture, test 3."""
 from __future__ import annotations
@@ -37,9 +37,9 @@ def _tool(folder: Path, name: str) -> None:
     (tool / "run.py").chmod(0o755)
 
 
-def _tree(root: Path, providers: list[str]) -> dict:
+def _tree(root: Path, suppliers: list[str]) -> dict:
     """A tree with `core/wanter` needing message.send and the named messaging connectors providing it."""
-    for name in providers:
+    for name in suppliers:
         _tool(_record(root, "connectors", name, type="messaging", provides=["message.send"]), name)
     wanter = _record(root, "core", "wanter", needs=["message.send"])
     _file_md(wanter / "rules/want.md", "want", "The wanting rule", "# want\n")
@@ -88,12 +88,12 @@ def needs_resolution(ctx) -> None:
     target2 = tmp / "nr-two-installation"
     target2.mkdir()
     code, said, message = _add(target2, two, "core/wanter")
-    check("NR-two-refused — two providers and no terminal: refused, naming the choices and the flag",
+    check("NR-two-refused — two supplying components and no terminal: refused, naming the choices and the flag",
           code == "needs-choice" and "chat" in message and "chat2" in message
           and "--messaging chat" in message and _booked(target2) == [], f"{code} {message} {_booked(target2)}")
 
     code, said, message = _add(target2, two, "core/wanter", "--messaging", "chat2")
-    check("NR-two-flag — --messaging NAME picks the provider on the agent path",
+    check("NR-two-flag — --messaging NAME picks the supplying component on the agent path",
           code == 0 and _booked(target2) == ["connectors/chat2", "core/wanter"], f"{code} {message} {_booked(target2)}")
 
     code, said, message = _add(tmp / "nr-two-bad", two, "core/wanter", "--messaging", "signal")
@@ -109,7 +109,7 @@ def needs_resolution(ctx) -> None:
         return "chat"
 
     code, said, message = _add(target3, two, "core/wanter", ask=ask)
-    check("NR-two-asked — a person is asked between the two providers and the answer is installed",
+    check("NR-two-asked — a person is asked between the two supplying components and the answer is installed",
           code == 0 and asked and asked[0][1] == ["chat", "chat2"] and "message.send" in asked[0][0]
           and _booked(target3) == ["connectors/chat", "core/wanter"], f"{code} {message} {asked} {_booked(target3)}")
 
@@ -126,7 +126,7 @@ def needs_resolution(ctx) -> None:
             refused = None
         except Refuse as exc:
             refused = exc
-        check("NR-agent-refused — rbtv agent add of a needing file with two providers is refused without --messaging",
+        check("NR-agent-refused — rbtv agent add of a needing file with two supplying components is refused without --messaging",
               refused is not None and refused.code == "needs-choice" and "--messaging chat" in refused.message,
               f"{refused and refused.code} {refused and refused.message}")
         result = add_agent(ws, "scout", ["want"], set(), two, False, port_choices={"messaging": "chat2"})
@@ -138,7 +138,7 @@ def needs_resolution(ctx) -> None:
         ws1.mkdir()
         _agent(ws1 / ".rbtv/agents/scout")
         result = add_agent(ws1, "scout", ["want"], set(), one, False)
-        check("NR-agent-one — with one provider the agent path installs it with no flag",
+        check("NR-agent-one — with one supplying component the agent path installs it with no flag",
               "connectors/talker#talker" in result["files"], str(result.get("files")))
 
         # Exercise the real dispatch and parser against repository plus mirror. The port exists only
@@ -170,3 +170,45 @@ def needs_resolution(ctx) -> None:
             code, data = invoke(["add", "core/wanter", "--beam", "light", "--target", str(ws), "--dry-run", "--json"])
             check("NR-mirror-serves — a mirror-only serves port has a flag",
                   code == 0, f"{code} {data}")
+
+    # Fresh dispatch, never an already installed need: mixed main types share only serves.
+    for in_mirror in (False, True):
+        suffix = "mirror" if in_mirror else "repo"
+        repo = tmp / f"nr-mixed-{suffix}-repo"
+        ws = tmp / f"nr-mixed-{suffix}-installation"
+        wanter = _record(repo, "core", "wanter", needs=["message.send"])
+        _file_md(wanter / "rules/want.md", "want", "The wanting rule", "# want\n")
+        for name, kind, serves in (("slack", "messaging", []), ("archive", "storage", ["messaging"])):
+            source = ws / ".rbtv/mirror" if in_mirror and name == "archive" else repo
+            comp = _record(source, "connectors", name, type=kind, serves=serves, provides=["message.send"])
+            _file_md(comp / f"rules/{name}.md", name, "The connector rule", "# connector\n")
+        ws.mkdir(parents=True, exist_ok=True)
+        with patch("lib.commands.REPO_ROOT", repo), contextlib.chdir(ws):
+            words = ["add", "core/wanter", "--harness", "claude", "--guidance", "none", "--target", str(ws), "--json"]
+            code, data = invoke(words)
+            check(f"NR-mixed-{suffix}-refusal — fresh mixed types name the accepted --messaging flag",
+                  code == 1 and "--messaging slack" in json.dumps(data) and _booked(ws) == [], f"{code} {data}")
+            code, data = invoke([*words, "--messaging", "slack"])
+            check(f"NR-mixed-{suffix}-selection — fresh --messaging slack installs the selected connector",
+                  code == 0 and _booked(ws) == ["connectors/slack", "core/wanter"], f"{code} {data}")
+
+    # No operation-noun fallback: flags come solely from declared ports, even with several in common.
+    from lib.selection import resolve_needs
+    multi = {"core/w": {"needs": ["beam.send"]},
+             "connectors/a": {"component": "a", "type": "optical", "serves": ["beam"], "provides": ["beam.send"]},
+             "connectors/b": {"component": "b", "type": "optical", "serves": ["beam"], "provides": ["beam.send"]}}
+    try:
+        selected = resolve_needs(multi, ["core/w"], [], {"beam": "b"})
+    except Refuse:
+        selected = []
+    check("NR-serves-fresh — an explicit common serves flag resolves an unmet need",
+          bool(selected) and selected[0]["component"] == "connectors/b", str(selected))
+    for label, catalog, choices in [("ports", multi, {}), ("conflict", multi, {"beam": "a", "optical": "b"}),
+                                     ("none", {**multi, "connectors/b": {**multi["connectors/b"], "type": "storage", "serves": []}}, {})]:
+        try:
+            resolve_needs(catalog, ["core/w"], [], choices)
+            reason = ""
+        except Refuse as exc:
+            reason = exc.message
+        check(f"NR-port-ambiguity-{label} — refuse ambiguous declared ports explicitly",
+              "port" in reason and {"ports": "ambiguous", "conflict": "conflicting", "none": "no common"}[label] in reason, reason)

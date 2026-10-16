@@ -81,6 +81,7 @@ async function send(operations, input) {
       thread = given == null ? id : (posted.thread ?? thread);
     }
     const sent = [];
+    let firstError;
     for (const file of files) {
       const target = conversation ? { conversation } : { contact: input.contact };
       try {
@@ -93,15 +94,14 @@ async function send(operations, input) {
         }
         if (!conversation && uploaded.conversation) conversation = uploaded.conversation;
       } catch (error) {
+        if (firstError === undefined) firstError = error;
         sent.push(refusalOf(file, error));
       }
     }
     if (id == null) {
       // Nothing was delivered: a failure of the whole send, never a partial with no reference.
-      const first = sent.find((f) => f.error);
-      const error = new Error(first ? first.detail : 'the connector did not confirm the message');
-      if (first) error.reason = first.error;
-      throw error;
+      if (firstError !== undefined) throw firstError;
+      throw new Error('the connector did not confirm the message');
     }
     return { conversation, id, thread: given == null ? null : thread, files: sent, textAsFile };
   } finally {
