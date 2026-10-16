@@ -13,7 +13,7 @@ Browse the source catalog with `rbtv list`, then inspect one module, component, 
 | Module | Description |
 |---|---|
 | `core` | rbtv's own operation, configuration, and editing, and the software that manages what an agent is exposed to, runs, launches, and connects agents on any harness. |
-| `connectors` | External services: Google Workspace, Slack, WhatsApp, ElevenLabs and TypeSafe application integrations. Agent harness and model launching remain in cast. |
+| `connectors` | Connectors to outside services (Slack, WhatsApp, Google Workspace, ElevenLabs, TypeSafe, Asaas), each a command for agents and an adapter Ignite loads, and one component per port with the operations connectors deliver (`messaging`). Agent harness and model launching remain in cast. |
 | `innovate` | The innovate module — taking a business idea from conception through validation to a brand book, and the individual innovation frameworks that do that work. |
 | `meta` | How agents behave, communicate, plan, and coordinate work across tasks. |
 | `office` | The office module — daily knowledge work: narrative and visual strategy, design extraction and style checking, and document/deck/email production. |

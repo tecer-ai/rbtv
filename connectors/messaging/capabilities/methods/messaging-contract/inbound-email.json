@@ -1,0 +1,16 @@
+{
+  "connector": "google",
+  "account": "sara@example.com",
+  "id": "<CAF3k1x9@mail.example.com>",
+  "at": 1760601600000,
+  "from": "pia@example.com",
+  "fromName": "Maria Pia",
+  "group": null,
+  "thread": "18c1f2a7b3d4e5f6",
+  "text": "Olá Sara, confirma a aula de amanhã às 9h? Segue o recibo em anexo.",
+  "files": [
+    { "id": "ANGjdJ8x", "name": "recibo-outubro.pdf", "mimetype": "application/pdf" }
+  ],
+  "mentionsAgent": false,
+  "isSelf": false
+}

@@ -1,0 +1,15 @@
+{
+  "connector": "whatsapp",
+  "account": "5511999990000",
+  "id": "3EB0A1B2C3D4E5F60718",
+  "at": 1760601660000,
+  "from": "5511988887777",
+  "fromName": "Pia",
+  "group": "120363041234567890@g.us",
+  "thread": null,
+  "text": "Sara, pode pagar a lavanderia hoje? São R$ 45.",
+  "files": [
+    { "id": "false_120363041234567890@g.us_3EB0A1B2C3D4E5F60718", "name": "PTT-20261016-WA0001.opus", "mimetype": "audio/ogg; codecs=opus" }
+  ],
+  "isSelf": false
+}

@@ -1,0 +1,5 @@
+{
+  "description": "The messaging port: the operations a messaging connector delivers to Ignite and to agents (send, receive, thread history, reactions, files, groups) and the inbound event shape; a connector to one service (Slack, WhatsApp, Google) belongs in its own component.",
+  "dependencies": [],
+  "type": "messaging"
+}
