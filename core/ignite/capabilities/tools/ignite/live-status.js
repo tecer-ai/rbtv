@@ -11,6 +11,9 @@
 //          each turn start, waiting by Ignite when a turn ends waiting_workers
 // DECLARED gathering | thinking | making | orchestrating — the agent states `ignite status` takes
 // TASK     done | caveats | question | stopped — from the turn result, shown at delivery
+// MEANING  { system, agent, task }: each layer's states in the order above, each with one plain
+//          sentence of what it tells the owner; SYSTEM, AGENT and TASK are its keys. A connector's
+//          legend shows the sentence beside the state's sign in its medium.
 // At most two layers show: the system, plus the agent during the work or the task after it.
 // taskOf(disposition, caveats) → the task state a turn result gives, or null for continue and
 //   waiting_workers.
@@ -41,10 +44,33 @@
 //   markTask(store, conversationKey, ts, task) → the row of an earlier owner message of the
 //     running turn's conversation whose last turn has finished.
 
-const SYSTEM = Object.freeze(['queued', 'running', 'fallback', 'retrying', 'failed']);
-const AGENT = Object.freeze(['working', 'gathering', 'thinking', 'making', 'orchestrating', 'waiting']);
+const MEANING = Object.freeze({
+  system: Object.freeze({
+    queued: 'Received; waiting for a turn to start.',
+    running: "A turn is running on the agent's own model.",
+    fallback: 'A turn is running on a fallback model.',
+    retrying: 'The turn failed and will be tried again.',
+    failed: 'The work failed and will not be retried.',
+  }),
+  agent: Object.freeze({
+    working: 'At work; it has not named the kind of work.',
+    gathering: 'Reading, searching and collecting what the work needs.',
+    thinking: 'Analysing, comparing, deciding or planning.',
+    making: 'Writing, building or editing files.',
+    orchestrating: 'Launching and coordinating workers.',
+    waiting: 'Waiting for its workers to finish.',
+  }),
+  task: Object.freeze({
+    done: 'The work is done.',
+    caveats: 'Done, with problems worth a follow-up.',
+    question: 'The agent asked a question and waits for the answer.',
+    stopped: 'The work stopped before it was done.',
+  }),
+});
+const SYSTEM = Object.freeze(Object.keys(MEANING.system));
+const AGENT = Object.freeze(Object.keys(MEANING.agent));
 const DECLARED = Object.freeze(['gathering', 'thinking', 'making', 'orchestrating']);
-const TASK = Object.freeze(['done', 'caveats', 'question', 'stopped']);
+const TASK = Object.freeze(Object.keys(MEANING.task));
 
 function taskOf(disposition, caveats) {
   if (disposition === 'completed') return caveats ? 'caveats' : 'done';
@@ -197,7 +223,7 @@ function markTask(store, conversationKey, ts, task) {
 }
 
 module.exports = {
-  SYSTEM, AGENT, DECLARED, TASK,
+  SYSTEM, AGENT, DECLARED, TASK, MEANING,
   taskOf, messageOf, received, started, fellBack, ended, failed, delivered, deliveryFailed, waitEnded,
   declare, markTask,
 };

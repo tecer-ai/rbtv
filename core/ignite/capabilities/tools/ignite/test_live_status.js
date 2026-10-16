@@ -14,7 +14,8 @@ const live = require('./live-status.js');
 const { createTicker, CALL_MS } = require('./status-ticker.js');
 const { main } = require('./cli.js');
 const { ignitePaths } = require('./config.js');
-const { liveStatus } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');
+const { createLegend } = require('./legend.js');
+const { liveStatus, legendView, EMOJI } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -1078,6 +1079,101 @@ test('taskOf: the task state each disposition gives', () => {
   assert.equal(live.taskOf('stopped', false), 'stopped');
   assert.equal(live.taskOf('continue', false), null);
   assert.equal(live.taskOf('waiting_workers', false), null);
+});
+
+const mrkdwn = (text) => ({ type: 'mrkdwn', text });
+
+test('legend: the modal, its header, and the heading and rows of each group as a two-column table', () => {
+  const view = legendView(live.MEANING);
+  assert.deepEqual(view.type, 'modal');
+  assert.deepEqual(view.title, { type: 'plain_text', text: 'Live status' });
+  assert.deepEqual(view.close, { type: 'plain_text', text: 'Close' });
+  assert.equal('submit' in view, false);
+  assert.deepEqual(view.blocks.map((b) => (b.fields ? `fields ${b.fields.length}` : b.type)), [
+    'header', 'context',
+    'divider', 'section', 'fields 10',
+    'divider', 'section', 'fields 10', 'fields 2',
+    'divider', 'section', 'fields 8',
+  ]);
+  assert.deepEqual(view.blocks[0], { type: 'header', text: { type: 'plain_text', text: 'What the reactions mean' } });
+  assert.deepEqual(view.blocks[1], { type: 'context', elements: [mrkdwn('Each owner message carries up to two reactions. '
+    + 'The left one is the system and stays still. The right one is the agent while it works, then the task once it replies.')] });
+  assert.deepEqual(view.blocks[3], { type: 'section', text: mrkdwn('*System* · left · stays still') });
+  assert.deepEqual(view.blocks[4].fields.slice(0, 2), [mrkdwn(':hourglass_flowing_sand: *queued*'), mrkdwn('Received; waiting for a turn to start.')]);
+  assert.deepEqual(view.blocks[6], { type: 'section', text: mrkdwn('*Agent* · right · moves while it works') });
+  assert.deepEqual(view.blocks[7].fields.slice(0, 4), [
+    mrkdwn(':clock12::clock2::clock4::clock6::clock8::clock10: *working*'), mrkdwn('At work; it has not named the kind of work.'),
+    mrkdwn(':mag::mag_right: *gathering*'), mrkdwn('Reading, searching and collecting what the work needs.'),
+  ]);
+  // The sixth agent row continues in a second section.
+  assert.deepEqual(view.blocks[8], { type: 'section', fields: [mrkdwn(':zzz::sleeping: *waiting*'), mrkdwn('Waiting for its workers to finish.')] });
+  assert.deepEqual(view.blocks[10], { type: 'section', text: mrkdwn('*Task* · right · once it replies') });
+  assert.deepEqual(view.blocks[11].fields.slice(2, 4), [mrkdwn(':warning: *caveats*'), mrkdwn('Done, with problems worth a follow-up.')]);
+});
+
+test('legend: every state of the Ignite contract appears once, in order, with its emoji and meaning, and nothing else', () => {
+  // The Slack mapping names exactly the contract's states, no more and no fewer.
+  assert.deepEqual(Object.keys(EMOJI.system), live.SYSTEM);
+  assert.deepEqual(Object.keys(EMOJI.agent), live.AGENT);
+  assert.deepEqual(Object.keys(EMOJI.task), live.TASK);
+  assert.deepEqual([live.SYSTEM.length, live.AGENT.length, live.TASK.length], [5, 6, 4]);
+  const view = legendView(live.MEANING);
+  const shown = { system: [], agent: [], task: [] };
+  let layer = null;
+  for (const block of view.blocks) {
+    if (block.type === 'section' && block.text) layer = block.text.text.match(/^\*(\w+)\*/)[1].toLowerCase();
+    if (!block.fields) continue;
+    for (let at = 0; at < block.fields.length; at += 2) {
+      const [, emoji, state] = block.fields[at].text.match(/^((?::[a-z0-9_]+:)*) \*(\w+)\*$/);
+      shown[layer].push({ state, emoji, meaning: block.fields[at + 1].text });
+    }
+  }
+  for (const [name, states] of [['system', live.SYSTEM], ['agent', live.AGENT], ['task', live.TASK]]) {
+    assert.deepEqual(shown[name].map((row) => row.state), [...states], name);
+    for (const row of shown[name]) {
+      assert.equal(row.emoji, [EMOJI[name][row.state]].flat().map((n) => `:${n}:`).join(''), `${name} ${row.state}`);
+      assert.equal(row.meaning, live.MEANING[name][row.state]);
+      // A meaning is a plain sentence: no emoji and no Slack markup.
+      assert.match(row.meaning, /^[A-Z][^:*_\p{Extended_Pictographic}]*\.$/u, `${name} ${row.state}`);
+    }
+  }
+});
+
+function legendSlack(fail = null) {
+  const slack = {
+    calls: [],
+    async openView(triggerId, view) {
+      slack.calls.push({ triggerId, view });
+      if (fail) throw fail;
+      return { viewId: 'V1' };
+    },
+  };
+  return slack;
+}
+
+test('legend: /legend from any user opens the legend with its trigger id; other commands and interactions are ignored', async () => {
+  const slack = legendSlack();
+  const logs = [];
+  const legend = createLegend({ slack: () => slack, log: (fields) => logs.push(fields) });
+  assert.equal(await legend.handle('slash_commands', { command: '/payments', user_id: 'UOWNER', team_id: 'T1', trigger_id: 'trig-1' }), undefined);
+  await legend.handle('interactive', { type: 'block_actions', user: { id: 'UOTHER' }, trigger_id: 'trig-2', actions: [{ action_id: 'payments_settings' }] });
+  await legend.handle('slash_commands', {});
+  assert.deepEqual(slack.calls, []);
+  await legend.handle('slash_commands', { command: '/legend', user_id: 'UNOTOWNER', team_id: 'T1', trigger_id: 'trig-7' });
+  assert.deepEqual(slack.calls, [{ triggerId: 'trig-7', view: legendView(live.MEANING) }]);
+  assert.deepEqual(logs, []);
+});
+
+test('legend: a failed views.open is logged and the handler resolves', async () => {
+  const logs = [];
+  const slack = legendSlack(new Error('views.open failed: expired_trigger_id'));
+  const legend = createLegend({ slack: () => slack, log: (fields) => logs.push(fields) });
+  assert.equal(await legend.handle('slash_commands', { command: '/legend', user_id: 'UNOTOWNER', trigger_id: 'trig-7' }), undefined);
+  assert.equal(slack.calls.length, 1);
+  assert.deepEqual(logs, [{ event: 'legend', action: 'open-failed', message: 'views.open failed: expired_trigger_id' }]);
+  // No Slack client, and a log that throws: still nothing escapes.
+  const bare = createLegend({ slack: () => null, log: () => { throw new Error('log down'); } });
+  assert.equal(await bare.handle('slash_commands', { command: '/legend', trigger_id: 'trig-8' }), undefined);
 });
 
 // A test left waiting on a promise that never settles would end the process before the summary.

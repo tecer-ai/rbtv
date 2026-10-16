@@ -10,6 +10,7 @@
 - **The task state comes from the turn result**: the disposition, plus `caveats` on `completed`. The command sets a task state only for an earlier message.
 - **The waking service shows the states.** The command records the state and exits. The service sees every agent, so it alone shares Slack's reaction budget among them: 45 adds a minute across all agents, half the rate at which Slack answered HTTP 429 in a measured burst.
 - **The Slack side is pure logic in the Slack connector**, handed the reaction functions by its caller, so it works with Ignite's own Slack client.
+- **The legend comes from the code and is open to everyone** (owner, 2026-10-16). `/legend` opens, for any user of the workspace, a modal that explains every reaction. Its rows are the states of Ignite's contract in order, each with its one-sentence meaning kept beside the state there, and the emoji of the Slack connector's mapping; renaming or adding a state or an emoji changes the legend with no other edit.
 - **Waiting on workers is an agent state.** It is not a task or system state: a turn ending `waiting_workers` shows the agent waiting, ticking slowly, until the next turn of that conversation starts or the work stops waiting (stopped or held).
 
 ## Payment gate

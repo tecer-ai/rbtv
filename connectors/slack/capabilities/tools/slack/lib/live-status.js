@@ -2,13 +2,18 @@
 
 // Live status in Slack: the reactions that show an owner message's Ignite state. Ignite names the
 // states (core/ignite/capabilities/tools/ignite/live-status.js) and knows no emoji; this file holds
-// the Slack emoji for each state and the order rules. Pure logic: it makes no network call and keeps
-// no timer. The caller passes the two reaction functions, the clock and where to record what each
-// message shows, and decides when to apply.
+// the Slack emoji for each state, the order rules and the legend that explains them. Pure logic: it
+// makes no network call and keeps no timer. The caller passes the two reaction functions, the clock
+// and where to record what each message shows, and decides when to apply.
 //
 // API
 // EMOJI — the Slack name of each state: one per system and task state, a list of frames per agent
 //   state. ADD_GAP_MS — the least time between two adds on one message.
+// legendView(meaning) → the modal (views.open's view) that explains every reaction. meaning is
+//   Ignite's MEANING: { system, agent, task }, each layer's states in order with one sentence each.
+//   Per layer: a divider, its name and place, then one row per state of meaning as a two-column
+//   table (section fields, LEGEND_ROWS rows per section): its emoji from EMOJI, an agent state's
+//   frames in order, with the state name in bold, beside its sentence.
 // liveStatus({ addReaction(channel, ts, name), removeReaction(channel, ts, name), now?, log?, record? })
 //   → one object that keeps, in memory, what every message it was given shows:
 //   set(message, state)    the state to show; message = { channel, ts }, state = { system, agent,
@@ -322,4 +327,38 @@ function liveStatus({ addReaction, removeReaction, now = Date.now, log, record }
   };
 }
 
-module.exports = { liveStatus, EMOJI, ADD_GAP_MS, RETRY_AFTER_MS, SERVER_PAUSE_MS, BACKOFF_MS, BACKOFF_MAX_MS };
+// Each layer's name and place in the legend; the reactions show the system on the left.
+const LEGEND_GROUPS = Object.freeze([
+  ['system', '*System* · left · stays still'],
+  ['agent', '*Agent* · right · moves while it works'],
+  ['task', '*Task* · right · once it replies'],
+]);
+// A section holds at most 10 fields: five rows of two.
+const LEGEND_ROWS = 5;
+
+function legendView(meaning) {
+  const mrkdwn = (text) => ({ type: 'mrkdwn', text });
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: 'What the reactions mean' } },
+    { type: 'context', elements: [mrkdwn('Each owner message carries up to two reactions. The left one is the system and stays still. '
+      + 'The right one is the agent while it works, then the task once it replies.')] },
+  ];
+  for (const [layer, heading] of LEGEND_GROUPS) {
+    blocks.push({ type: 'divider' }, { type: 'section', text: mrkdwn(heading) });
+    const rows = Object.entries(meaning?.[layer] || {}).map(([state, sentence]) => {
+      const emoji = [EMOJI[layer][state] || []].flat().map((name) => `:${name}:`).join('');
+      return [mrkdwn([emoji, `*${state}*`].filter(Boolean).join(' ')), mrkdwn(sentence)];
+    });
+    for (let at = 0; at < rows.length; at += LEGEND_ROWS) {
+      blocks.push({ type: 'section', fields: rows.slice(at, at + LEGEND_ROWS).flat() });
+    }
+  }
+  return {
+    type: 'modal',
+    title: { type: 'plain_text', text: 'Live status' },
+    close: { type: 'plain_text', text: 'Close' },
+    blocks,
+  };
+}
+
+module.exports = { liveStatus, legendView, EMOJI, ADD_GAP_MS, RETRY_AFTER_MS, SERVER_PAUSE_MS, BACKOFF_MS, BACKOFF_MAX_MS };

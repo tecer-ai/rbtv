@@ -1,6 +1,6 @@
 # ignite
 
-`ignite` runs and administers Ignite agents. Its waking service keeps one process per installation that receives each agent's Slack messages, schedules and queued work, and runs one turn at a time for each through `ignite turn`, with the agent's own harness, model and effort. The same program gives a person or an agent the verbs that connect an agent, inspect its turns and change its schedules, work queue, board and remembered facts, and gives a payment tool the verb that asks the [payment gate](../../glossary/payment-gate.md), whose owner side is the `/payments` panel in Slack. `ignite -h` and each verb's `-h` own the grammar and options. The program is `cli.js` in this folder; the waking service runs on Linux only.
+`ignite` runs and administers Ignite agents. Its waking service keeps one process per installation that receives each agent's Slack messages, schedules and queued work, and runs one turn at a time for each through `ignite turn`, with the agent's own harness, model and effort. The same program gives a person or an agent the verbs that connect an agent, inspect its turns and change its schedules, work queue, board and remembered facts, and gives a payment tool the verb that asks the [payment gate](../../glossary/payment-gate.md), whose owner side is the `/payments` panel in Slack. In Slack, `/legend` shows anyone what each live status reaction means. `ignite -h` and each verb's `-h` own the grammar and options. The program is `cli.js` in this folder; the waking service runs on Linux only.
 
 ## Read for this work
 

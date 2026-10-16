@@ -21,6 +21,7 @@ const cli = require('./cli.js');
 const deferred = require('./deferred-deploy.js');
 const { Gate } = require('./payments.js');
 const { createPaymentPanel } = require('./payment-panel.js');
+const { createLegend } = require('./legend.js');
 const { createPaymentRunner } = require('./payment-runner.js');
 const { startWebhook, loadProvider } = require('./payment-webhook.js');
 
@@ -317,6 +318,15 @@ async function startLocked(opts, workspace, held) {
     log,
     kick: () => { paymentStep(); },
   });
+  const legend = createLegend({ slack: () => slack, log });
+  // Slack's interactions: the payment panel answers its own at the ACK; /legend needs only the bare ACK.
+  const interactions = {
+    ack: panel.ack,
+    async handle(type, payload) {
+      await legend.handle(type, payload);
+      await panel.handle(type, payload);
+    },
+  };
   const runner = gate ? createPaymentRunner({
     gate,
     slack: () => slack,
@@ -586,7 +596,7 @@ async function startLocked(opts, workspace, held) {
       }
       timers.push(setInterval(paymentStep, opts.paymentMs ?? SWEEP_MS));
     }
-    if (socket) await socket.connect(onEvent, panel);
+    if (socket) await socket.connect(onEvent, interactions);
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
     timers.push(setInterval(() => {

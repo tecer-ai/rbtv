@@ -21,4 +21,6 @@ Ignite owns the states and names no emoji. A communication connector shows them 
 
 The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A continue or wake turn shows on the latest owner message of its work; a scheduled wake answers no owner message and shows nothing. A turn's start removes the agent state of the conversation's other messages; when a turn of the same work later ends with a task state, those messages show that task too. `ignite status --task <state> --message <ts>` sets the task state of an earlier owner message of the same conversation whose turn has finished.
 
+In Slack, `/legend` shows any user what each reaction means, from the states and their meanings in Ignite and the emoji in the Slack connector.
+
 The rule [live-status](../../rules/live-status.md) tells an Ignite agent when to declare its state. Ignite's [architecture](../tools/ignite/documentation/architecture.md) names the files that set and show each state.
