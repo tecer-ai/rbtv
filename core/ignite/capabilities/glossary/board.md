@@ -6,6 +6,8 @@ A board is short-term memory of what matters in one folder, organized by subject
 
 Keep all four headings in order: What matters now, Watch-outs, Timers, Recently closed. A subject has a unique noun-phrase title, one to three state lines with one fact per line, then Threads, Detail and Flags. Add the relevant thread links yourself, or use `none`; Ignite never invents a thread link. The board points to threads, not the reverse. A wake names the check that fired; keep its details on the board.
 
+Use a subject's existing state lines to state its scope and verifiable completion condition; for recurring work, state what completes each occurrence. Keep a task-specific instruction tied to that work until completion or its stated end condition. Preserve those limits in Watch-outs, memory and prompts; make it a general rule only on the owner's explicit instruction.
+
 Record an owner correction of this agent’s behavior in Watch-outs in the same turn. Follow [Memory](memory.md#record-and-maintain-information) when the correction is also an owner fact. Albert folds supported watch-outs into [Learned rules](learned-rules.md). A correction is never dropped for size. A refused watch-out still applies during the conversation; report the refusal rather than ignoring the correction.
 
 The file `_artifacts/board.md` is the one complete canonical board. Capture does not refuse a seventh watch-out, subject or closed line. Identical watch-out lines are still refused. There is no six-item board quota.
