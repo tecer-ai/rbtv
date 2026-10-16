@@ -17,7 +17,7 @@ Keep the job's files in `runtime/albert/ingest/<job>/` in this agent folder, `<j
 
 Read the original, never only its summary. When a source exists as a transcript and a generated summary, read the transcript; a summary is not evidence and does not corroborate its original.
 
-When the job has one source, read it yourself. With more, launch one reader per source with the [swarm](../../../meta/coordinate/capabilities/methods/swarm.md) method; the reading needs judgment, so route it as a middle lane (`--class bounded`). Each reader reads its whole source with the glossary and writes one result file with one entry per candidate:
+When the job has one source, read it yourself. With more, launch one reader per source with the [swarm](../../../meta/coordinate/capabilities/methods/swarm.md) method; the reading needs judgment, so route it as a middle lane (`--class bounded`). The owner's import request orders this delegation: readers, checker and retrieval worker at the models `cast route` names, with no budget, model or tier limit beyond that routing. That order answers the coordinate skill's first rule, so a job does not stop to ask it, in a conversation or in a headless launch. Each reader reads its whole source with the glossary and writes one result file with one entry per candidate:
 
 | Field | Content |
 |---|---|
