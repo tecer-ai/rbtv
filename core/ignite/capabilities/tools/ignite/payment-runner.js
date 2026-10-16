@@ -20,7 +20,9 @@
 //      publicRow) on stdin gives the recipient as the bank names it, recorded with gate.resolved (a key, amount
 //      or fee that differs refuses the request); after 3 failed tries 30 s apart, gate.resolveFailed;
 //   2. posts each pending request resolved or failed and without a message to its conversation's thread, with
-//      Approve and Refuse, or Refuse alone when the resolution failed (payment-panel.js promptBlocks);
+//      Approve and Refuse, or Refuse alone when the resolution failed (payment-panel.js promptBlocks); a message
+//      Slack took that the ledger could not record (it was busy) is recorded on a later pass, every 30 s, and never
+//      posted again;
 //   3. sends each approved request not yet claimed: claims it (once only), runs `<provider> --json pay execute <id>`
 //      with the request on stdin, and records sent, with the provider's id, status and receipt; failed only when
 //      the tool answers {"created": false} (the bank refused it, or it was never called) or the program could not be
@@ -36,10 +38,12 @@
 //   6. updates each request message whose state changed: the buttons go once it is not pending;
 //   7. tells the requesting conversation each outcome once per state (refused by the owner or by Ignite's
 //      check, failed, uncertain, sent and final or sent 10 minutes ago): a wake with the outcome as its note,
-//      or, when its work does not wait for workers, a system message posted in its thread. The conversation is
-//      found under its newest key (store.js followConversation). The agent store records the notice with its wake or
-//      post (store.js notify), so a retry never tells it twice; a try that fails is retried every 30 s, and after
-//      20 in one service run the outcome is marked told and logged as notify-lost.
+//      or, when its work takes no wake, a system message posted in its thread; a wake whose work stops taking
+//      wakes before a turn takes it (the turn running then completes the work or waits for the owner) becomes
+//      that post. The conversation is found under its newest key (store.js followConversation). The agent store
+//      records the notice with its wake or post (store.js notify), so a retry never tells it twice; a try that
+//      fails is retried every 30 s, and after 20 in one service run the outcome is marked told and logged as
+//      notify-lost.
 //   A Slack call that fails is retried after 30 s.
 //   stop() → Promise settled when the pass in flight ends; no pass starts after it.
 // outcomeText(gate, row) → the note an outcome wakes the conversation with.
@@ -121,6 +125,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   const resolveTries = new Map();
   const notifyTries = new Map();
   const unrecorded = new Map();
+  const unrecordedPrompts = new Map();
   let running = null;
   let halted = false;
 
@@ -180,22 +185,36 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
     const client = slack();
     if (!client?.postBlocks) return;
     for (const row of rows) {
-      if (halted || !due(`prompt:${row.id}`)) continue;
+      if (halted || !due(`prompt:${row.id}`) || unrecordedPrompts.has(row.id)) continue;
       const conv = conversationOf(row);
       if (!conv?.channel) {
         gate.promptPosted(row.id, { channel: null, ts: '-' });
         note({ action: 'prompt-skipped', id: row.id, reason: 'conversation not found; the request is in /payments' });
         continue;
       }
+      let posted;
       try {
-        const posted = await client.postBlocks({
+        posted = await client.postBlocks({
           channel: conv.channel, threadTs: conv.root_ts || undefined, text: promptText(gate, row), blocks: promptBlocks(gate, row),
         });
-        gate.promptPosted(row.id, { channel: posted.channel, ts: posted.ts });
-        note({ action: 'prompt', id: row.id });
       } catch (error) {
         later(`prompt:${row.id}`, error, { action: 'prompt-failed', id: row.id });
+        continue;
       }
+      recordPrompt(row.id, { channel: posted.channel, ts: posted.ts });
+    }
+  }
+
+  // Records a message Slack took. A ledger that refuses the write (busy) keeps the message here, recorded again on a
+  // later pass; it is never posted again, so the message that shows the buttons is the one later updated.
+  function recordPrompt(id, message) {
+    try {
+      gate.promptPosted(id, message);
+      unrecordedPrompts.delete(id);
+      note({ action: 'prompt', id });
+    } catch (error) {
+      unrecordedPrompts.set(id, message);
+      later(`prompt-record:${id}`, error, { action: 'prompt-record-retry', id });
     }
   }
 
@@ -352,6 +371,10 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       for (const [id, outcome] of unrecorded) {
         if (halted) return;
         if (due(`record:${id}`)) settle(id, outcome);
+      }
+      for (const [id, message] of unrecordedPrompts) {
+        if (halted) return;
+        if (due(`prompt-record:${id}`)) recordPrompt(id, message);
       }
       const work = gate.due({ now: now() });
       for (const row of work.resolve) {

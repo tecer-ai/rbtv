@@ -23,6 +23,8 @@
 // notify({ id, conversationKey, note, payload }) — one notice told once, in one transaction: a wake carrying note
 //   (queue id wake:<id>), or, when the conversation has no work a wake can take, the post payload (outbox id
 //   post:<id>). Either row existing, in any state, makes it 'duplicate': nothing is inserted. → { inserted, reason, woke }
+//   A notice's wake still pending when its work turns completed, stopped, waiting_owner or held (finishRun, stopWork,
+//   failRun) becomes its post in that transaction (queue state posted), so the notice reaches the conversation once.
 // enqueueScheduleWake({ id, conversationKey, scheduleId, workId, details }) — fresh threadless conversation;
 //   conversationKey supplies routing only, workId gates eligibility only. An id already in the queue, in any
 //   state, is 'duplicate' and inserts nothing; other timers' wakes never block it. details, when given, is the
@@ -77,6 +79,8 @@ const RETRY_DELAYS_MS = Object.freeze([5_000, 30_000]);
 const MAX_ATTEMPTS = 3;
 const TERMINAL = new Set(['completed', 'stopped']);
 const HELD = 'held';
+// Work in one of these states takes no wake: a worker's is refused, a notice's is told as its post.
+const NO_WAKE = new Set([...TERMINAL, HELD, 'waiting_owner']);
 const OWNER_PRIORITY = 0;
 const AUTO_PRIORITY = 10;
 
@@ -471,9 +475,9 @@ class Store {
     return this.transaction(() => this._wake(workId ? this.getWork(workId) : this._wakeTarget(conversationKeyValue), note));
   }
 
-  _wake(work, note, id = null) {
+  _wake(work, note, id = null, post = null) {
     if (!work) return { inserted: false, reason: 'unknown' };
-    if (TERMINAL.has(work.state) || work.state === HELD || work.state === 'waiting_owner') {
+    if (NO_WAKE.has(work.state)) {
       return { inserted: false, reason: 'refused', workId: work.id };
     }
     const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='wake' AND state='pending' AND work_id=?`).get(work.id);
@@ -482,9 +486,22 @@ class Store {
     this.db.prepare(`INSERT INTO queue
       (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
       VALUES (?, ?, 'wake', ?, ?, ?, ?, ?)`).run(
-      queueId, work.conversation_key, json({ note }), work.id, AUTO_PRIORITY, Date.now(), Date.now(),
+      queueId, work.conversation_key, json(post ? { note, post } : { note }), work.id, AUTO_PRIORITY, Date.now(), Date.now(),
     );
     return { inserted: true, reason: 'queued', workId: work.id, id: queueId };
+  }
+
+  // A notice's wake (notify) still pending on work that no longer takes a wake is told as the notice's post.
+  _postNotices(workId) {
+    const rows = this.db.prepare(`SELECT id, conversation_key, payload FROM queue
+      WHERE work_id=? AND kind='wake' AND state='pending'`).all(workId);
+    for (const row of rows) {
+      const { post } = parse(row.payload);
+      if (!post) continue;
+      const postId = `post:${row.id.slice('wake:'.length)}`;
+      this._enqueueOutbox({ id: postId, conversationKey: row.conversation_key, payload: post, clientMsgId: postId });
+      this.db.prepare("UPDATE queue SET state='posted' WHERE id=?").run(row.id);
+    }
   }
 
   notify({ id, conversationKey: conversationKeyValue, note, payload }) {
@@ -496,7 +513,7 @@ class Store {
         return { inserted: false, reason: 'duplicate', woke: false };
       }
       if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
-      if (this._wake(this._wakeTarget(conversationKeyValue), note, wakeId).inserted) {
+      if (this._wake(this._wakeTarget(conversationKeyValue), note, wakeId, payload).inserted) {
         return { inserted: true, reason: 'woke', woke: true, id: wakeId };
       }
       this._enqueueOutbox({ id: postId, conversationKey: conversationKeyValue, payload, clientMsgId: postId });
@@ -636,6 +653,7 @@ class Store {
         this.db.prepare(`UPDATE work SET state=?, summary=?, next_step=?, workers=?, outputs=?, error=NULL, updated_at=?
           WHERE id=?`).run(state, summary, nextStep, json(workers), json(outputs), now, run.work_id);
         work = this.getWork(run.work_id);
+        if (NO_WAKE.has(state)) this._postNotices(run.work_id);
         if (!stopped && disposition === 'continue') {
           this.db.prepare(`INSERT OR IGNORE INTO queue
             (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
@@ -691,6 +709,7 @@ class Store {
           .run(json({ reason: String(reason), at: now }), now);
       } else {
         this.db.prepare("UPDATE work SET state='held', error=?, updated_at=? WHERE id=?").run(String(reason), now, run.work_id);
+        this._postNotices(run.work_id);
       }
       const repair = holdAgent
         ? 'rbtv agent configure, then ignite work retry'
@@ -735,6 +754,7 @@ class Store {
       if (!work) throw new Error('unknown work');
       const now = Date.now();
       this.db.prepare("UPDATE work SET state='stopped', updated_at=? WHERE id=?").run(now, id);
+      this._postNotices(id);
       this.db.prepare(`UPDATE queue SET state='cancelled'
         WHERE work_id=? AND state='pending' AND kind IN ('continue', 'wake', 'schedule')`).run(id);
       return this.getWork(id);

@@ -1219,6 +1219,61 @@ test('a send whose result the ledger could not record is recorded on a later pas
   assert.deepEqual(gate.usage(), { day: 1000, week: 1000, month: 1000 });
 });
 
+test('an outcome queued as a wake while a turn runs reaches the conversation once, when that turn completes or waits for the owner', async () => {
+  for (const disposition of ['completed', 'waiting_owner']) {
+    const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+    gate.saveSettings({ mode: 'case_by_case', limits: {} });
+    const store = agentStore();
+    const turn = store.claimNext();
+    const row = ask(gate);
+    gate.refuse(row.id);
+    const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now });
+    await runner.step();
+    assert.deepEqual([wakes(store).length, posts(store).length, gate.get(row.id).notified], [1, 0, 'refused'], disposition);
+    store.finishRun(turn.runId, turn.nonce, { invocationNonce: turn.nonce, output: 'done', disposition });
+    for (let i = 0; i < 3; i++) {
+      clock.now += 30_000;
+      await runner.step();
+    }
+    assert.equal(store.claimNext(), null, disposition);
+    assert.deepEqual(posts(store), [{ id: 'post:payment:P-0001:refused', conversation_key: KEY }], disposition);
+    store.markDelivered('post:payment:P-0001:refused', { channel: 'C1', ts: '1.5' });
+    assert.equal(store.listHistory(KEY).find((m) => m.id === 'post:payment:P-0001:refused').text,
+      'System message: Payment P-0001 was refused by the owner: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). Nothing was sent.', disposition);
+    assert.equal(wakes(store).length, 1, disposition);
+  }
+});
+
+test('a thread message Slack took while the ledger was busy is recorded on a later pass, never posted again, and loses its buttons', async () => {
+  const { gate, clock, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 50 });
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const row = ask(gate);
+  gate.resolved(row.id, KENU);
+  const slack = fakeSlack();
+  // Slack takes the first message; meanwhile another connection holds the ledger.
+  let lock = null;
+  const postBlocks = slack.client.postBlocks;
+  slack.client.postBlocks = async (...args) => {
+    const posted = await postBlocks(...args);
+    if (!lock) lock = lockOf(ledgerPath(workspace));
+    return posted;
+  };
+  const store = agentStore();
+  const runner = createPaymentRunner({ gate, slack: () => slack.client, store: () => store, providers: ['asaas'], cwd: workspace, now: () => clock.now });
+  await runner.step();
+  assert.equal(gate.get(row.id).prompt_ts, null);
+  lock.release();
+  await runner.step();
+  clock.now += 30_000;
+  await runner.step();
+  assert.deepEqual([gate.get(row.id).prompt_channel, gate.get(row.id).prompt_ts], ['C1', '9.1']);
+  gate.refuse(row.id);
+  clock.now += 30_000;
+  await runner.step();
+  assert.deepEqual(slack.calls.map((c) => [c.method, c.args[0].ts || null]), [['postBlocks', null], ['updateMessage', '9.1']]);
+  assert.equal(slack.calls[1].args[0].blocks.some((b) => b.type === 'actions'), false);
+});
+
 test('a scheduled conversation rekeyed by its first reply still gets its request thread and its outcome', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });

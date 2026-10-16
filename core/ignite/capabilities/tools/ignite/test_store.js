@@ -550,6 +550,47 @@ test('stop during a run survives finishRun continue', (store) => {
   assert.equal(store.claimNext(2_000), null);
 });
 
+test("a notice's wake still pending when its work stops taking wakes is told as its post, once", (store) => {
+  const notice = (id, key) => ({ id, conversationKey: key, note: `note ${id}`, payload: { text: `post ${id}` } });
+  const queueState = (id) => store.db.prepare('SELECT state FROM queue WHERE id=?').get(id).state;
+  const posted = () => store.db.prepare("SELECT id, payload FROM outbox WHERE id LIKE 'post:%' ORDER BY rowid").all()
+    .map((row) => [row.id, JSON.parse(row.payload).text]);
+  // Each notice arrives as a wake while an owner turn runs on its conversation's work; the turn then ends it.
+  const during = (id, end) => {
+    const key = `T1:C1:${id}`;
+    conv(store, key, { rootTs: id });
+    store.enqueue({ id: `q:${id}`, conversationKey: key });
+    const claim = store.claimNext();
+    assert.equal(claim.id, `q:${id}`);
+    assert.equal(store.notify(notice(id, key)).woke, true);
+    end(claim);
+    return key;
+  };
+  during('1', (claim) => finish(store, claim, 'completed'));
+  during('2', (claim) => finish(store, claim, 'waiting_owner'));
+  during('3', (claim) => { store.stopWork(claim.work_id); finish(store, claim, 'continue'); });
+  during('4', (first) => {
+    let claim = first;
+    let now = Date.now();
+    for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+      now = store.failRun(claim.runId, 'boom', { now }).retryAt;
+      claim = store.claimNext(now);
+      assert.equal(claim.id, 'q:4');
+    }
+    assert.equal(store.failRun(claim.runId, 'boom', { scope: 'work', now }).scope, 'work');
+  });
+  assert.deepEqual(posted(), [['post:1', 'post 1'], ['post:2', 'post 2'], ['post:3', 'post 3'], ['post:4', 'post 4']]);
+  assert.deepEqual(['1', '2', '3', '4'].map((id) => queueState(`wake:${id}`)), ['posted', 'posted', 'posted', 'posted']);
+  assert.equal(store.claimNext(Date.now() + 60_000), null);
+  assert.equal(store.notify(notice('1', 'T1:C1:1')).reason, 'duplicate');
+  // Work that still takes a wake keeps it: the agent's next turn hears the notice.
+  const key = during('5', (claim) => finish(store, claim, 'waiting_workers'));
+  const woke = store.claimNext();
+  assert.deepEqual([woke.id, woke.conversation_key, woke.payload.note], ['wake:5', key, 'note 5']);
+  finish(store, woke, 'completed');
+  assert.equal(posted().length, 4);
+});
+
 test('nonce freshness, invalid disposition, continue requires next step', (store) => {
   conv(store);
   store.enqueue({ id: 'q1', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
