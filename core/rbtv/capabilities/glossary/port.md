@@ -8,7 +8,7 @@ A connector's record names the port it is listed under as `type` and the other p
 
 | Part | Where | Today |
 |---|---|---|
-| A contract: its operations, each required or optional, and the shape of its inbound events | A capability page in the port's component, `connectors/<port>/` | [Messaging contract](../../../../connectors/messaging/capabilities/methods/messaging-contract.md). Payments has no contract page; its operations are the ones `connectors/asaas` declares and the [payment gate](../../../ignite/capabilities/glossary/payment-gate.md) governs |
+| A contract: its operations, each required or optional, the shape of its inbound events and what its adapter exports | A capability page in the port's component, `connectors/<port>/` | [Messaging contract](../../../../connectors/messaging/capabilities/methods/messaging-contract.md). Payments has no contract page; its operations are the ones `connectors/asaas` declares and the [payment gate](../../../ignite/capabilities/glossary/payment-gate.md) governs |
 | A port command, which agents call and which picks the connector | The same component | `cast` is the port command of `agent.run`. `message` and `pay` are not built; `asaas pay` calls the gate itself |
 | A [listener](../../../ignite/capabilities/glossary/listener.md), the inbound side, when Ignite consumes the port | Ignite | Ignite listens to Slack through its own client |
 

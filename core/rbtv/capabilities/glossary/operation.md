@@ -1,6 +1,6 @@
 # Operation
 
-An operation is one named exchange of a [port](port.md), written `<noun>.<verb>` in lower-case kebab-case: `message.send`, `message.receive`, `approval.secure`, `payment.send`, `agent.run`. A [connector](connector.md)'s record lists the operations it delivers under `provides`, a component lists those it requires under `needs`, and the installer matches a need to a provider by operation name, never by connector name; [Component record](component-json.md) states the fields.
+An operation is one named exchange of a [port](port.md), written `<noun>.<verb>` in lower-case kebab-case: `message.send`, `message.receive`, `approval.secure`, `payment.send`, `agent.run`. A [connector](connector.md)'s record lists the operations it delivers under `provides`, a component lists those it requires under `needs`, and the installer matches a need to the component that provides it by operation name, never by component name; [Component record](component-json.md) states the fields.
 
 The noun is the one the port's [port command](port-command.md) acts on, not the port's name: the `messaging` port's operations are `message.*` and `group.*`, the `payments` port's are `payment.*`. Types alone cannot say what a connector can do, so a need names the operation: a payment requires `approval.secure`, which WhatsApp cannot deliver, and refuses WhatsApp with no special case.
 
