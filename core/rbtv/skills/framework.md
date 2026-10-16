@@ -19,6 +19,7 @@ A module is `<module>/` with `<module>.json`; a component is `<module>/<componen
 | Agent | `agents/<name>/prompt.md` and `agent.json` |
 | Hook, MCP server, pack | `hooks/<name>.json`, `mcp-servers/<name>.json`, `packs/<name>.json` |
 | Tool | `capabilities/tools/<name>/<name>.json` and its executable |
+| Connector | A component under `connectors/`: its record names its `type`, its command is a tool, and its adapter is `capabilities/tools/<name>/lib/<file>.js` |
 | Folder instructions | `folder-instructions/<name>.md` |
 | Capability | Markdown under `capabilities/`: a method page in `capabilities/methods/`, a tool page at `capabilities/tools/<tool>/<tool>.md`; read from source, not installed |
 | Glossary entry | `capabilities/glossary/<term>.md` in the owning component |
@@ -82,6 +83,7 @@ Then, when the work is one of the kinds below, read that kind's page. (Ignite me
 | [Hook](../capabilities/glossary/hook.md) | Event, matching and command outcome | Run and enforce at the intended event | writing or changing a hook | only a server or tool changes |
 | [MCP server](../capabilities/glossary/mcp-server.md) | Server connection and credential references | Expose the intended server actions | writing or changing an MCP server record | only a tool or hook changes |
 | [Tool](../capabilities/glossary/tool.md) | Program interface, how an agent finds the tool, the tool one agent owns and executable record, with routes to tool record, configuration and runtime folder and the command-line method | Return usable results during a task | writing or changing a tool, in a component or in an agent's folder | only prose instructions change |
+| [Building a connector](../capabilities/methods/building-a-connector.md) | The two-part shape (command and adapter), the record's port fields, the order of work, the money and messaging sections, the security rules and the shape check, with routes to connector, port, operation, adapter, the messaging contract and the payment gate | Join rbtv to an outside service behind a port | the selected kind or named work is a connector: a component under `connectors/`, its command, its adapter, or a record's `type`, `serves`, `provides` or `needs` | a tool outside `connectors/`, or a port command (`message`, `pay`, `cast`), which is a tool |
 | [Pack](../capabilities/glossary/pack.md) | Shared installation selection | Install one group for several targets | writing or changing a pack, or sharing a selection across targets | only one target needs the selection |
 | [Capability](../capabilities/glossary/capability.md) | Capability boundary and caller contract, with routes to writing a capability, template and schema | Write the work that follows a route | the selected kind or named work is a capability | only writing an exposure method |
 | [Writing a glossary entry](../capabilities/methods/writing-a-glossary-entry.md) | Entry structure, ownership and verification | Define a term and teach its authoring | creating, editing or converting an entry, or introducing a term without one | no term entry is added or changed |

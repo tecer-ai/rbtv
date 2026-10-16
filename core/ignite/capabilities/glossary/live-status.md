@@ -2,7 +2,7 @@
 
 Live status is the state Ignite shows the owner on the latest message of each conversation's thread, so that the work of an agent the owner cannot watch stays visible while it runs. It has three layers, and at most two show at once: the system state, plus the agent state during the work or the task state after it. The agent and task states never show together.
 
-Ignite owns the states and names no emoji. A communication connector shows them in its own medium; Slack shows them as reactions, through the mapping and order rules in `connectors/slack/capabilities/tools/slack/lib/live-status.js`. Ignite's waking service is the only place that shows them, because it alone sees every agent and so shares Slack's rate budget across them.
+Ignite owns the states and names no emoji. A messaging connector shows them in its own medium; Slack shows them as reactions, through the mapping and order rules in `connectors/slack/capabilities/tools/slack/lib/live-status.js`. Ignite's waking service is the only place that shows them, because it alone sees every agent and so shares Slack's rate budget across them.
 
 | Layer | State | Set by |
 |---|---|---|

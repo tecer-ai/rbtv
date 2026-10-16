@@ -4,7 +4,7 @@
 
 [Live status](capabilities/glossary/live-status.md) shows each conversation's state in three layers, system, agent and task, on the latest message of its thread. Owner decisions, 2026-10-15:
 
-- **Ignite owns the states; connectors own the medium.** Ignite names no emoji. Each communication connector shows the states in its own medium; Slack is the one built. A new medium adds a connector, not a state.
+- **Ignite owns the states; connectors own the medium.** Ignite names no emoji. Each messaging connector shows the states in its own medium; Slack is the one built. A new medium adds a connector, not a state.
 - **Only the agent state moves.** A tick removes the agent's frame and then adds the next, so the order system, then agent or task, holds by itself. The owner prefers a brief gap to two frames shown at once.
 - **The agent declares only what it is doing.** `ignite status <state>` takes no message, thread or Slack argument. Ignite sets `working` at every turn start, so an agent that never declares still shows as working.
 - **The task state comes from the turn result**: the disposition, plus `caveats` on `completed`. The command sets a task state only for an earlier message.
@@ -37,3 +37,11 @@ Fix rounds, 2026-10-15 (reviews of the first build and of the first fix round; m
 - **The withdrawal validation answers from its own thread.** The service's main thread makes blocking SQLite calls, for the ledger and for every agent's store, so a listener there waits whenever any of them waits. The listener runs in a worker thread with its own ledger connection, which never waits on a lock: a busy ledger is tried again without blocking and refused 600 ms after the call arrived, so every answer arrives within 1 s.
 - **Every Socket Mode envelope is acknowledged on arrival**, before and apart from its processing, so no handler, error or busy ledger can miss Slack's 3 s. A submitted form therefore shows "Checking…" and its outcome arrives by `views.update`; an owner message whose processing fails after its acknowledgement is logged, not redelivered.
 - **Settings forms carry their revision, and each owner interaction is recorded by its key**, so a replayed or stale submission changes nothing; only the key is kept, never a payload.
+
+## Connectors
+
+Owner decisions of the connector architecture, 2026-10-16, as far as they bind Ignite today:
+
+- **A connector's adapter is a Node module Ignite loads in-process**, by the connector's name, as `payment-webhook.js` loads `connectors/asaas/.../lib/withdrawal-validation.js` and `status-ticker.js` requires `connectors/slack/.../lib/live-status.js`. Ignite reacts, polls and ticks; a command started per Slack call is not viable. The connector's command, in any language, is the agent's and knows nothing of Ignite, so a connector may carry two implementations of one service call. [Adapter](../rbtv/capabilities/glossary/adapter.md) states the shape.
+- **Every call Ignite makes on its Slack client is tagged by the messaging contract** (`connectors/messaging/capabilities/methods/messaging-contract.md`): `message` for an operation of the messaging port, `panel` for the payment panel (`approval.secure`: views, modals and blocks are the panel, not messaging), `ignite-internal` for the client's session. `test_messaging_contract.js` fails on an untagged call site, so the contract is read off Ignite's real use and never off Slack's surface. Ignite moves onto the Slack connector's adapter behind that contract last, after the port commands and the listener have run for real.
+- **The listener and routing are Ignite's**, never an adapter's: admission, thread affinity, the most specific subscription, a judged subscription, the port's default agent, every decision logged. [Listener](capabilities/glossary/listener.md) and [Subscription](capabilities/glossary/subscription.md) state the terms; the ingress change that admits a non-owner sender is a named, tested step of its own, and owner-only stays the default until a subscription opens it.
