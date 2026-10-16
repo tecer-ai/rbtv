@@ -7,6 +7,8 @@ const path = require('node:path');
 const { Store } = require('./store.js');
 const { deliverPending } = require('./outbox.js');
 const live = require('./live-status.js');
+const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
+const AGENT_MODEL = example('a claude CLI model for the agent record', (m) => m.harness === 'claude' && m.mode === 'cli');
 
 const failures = [];
 const pending = [];
@@ -41,7 +43,7 @@ test('every post and upload is sent as the agent named in agent.json', async (st
   const path = require('node:path');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-as-'));
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
-    name: 'sara', harness: 'claude', model: 'opus-5-5', effort: 'medium', avatar: ':owl:',
+    name: 'sara', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:',
   }));
   fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt');
   const file = path.join(home, 'out.txt');
@@ -65,7 +67,7 @@ test('an external_name is shown instead of the internal name', async (store) => 
   const path = require('node:path');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-as-'));
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
-    name: 'master', external_name: 'Brigid', harness: 'claude', model: 'opus-5-5', effort: 'medium', avatar: ':owl:',
+    name: 'master', external_name: 'Brigid', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:',
   }));
   fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt');
   const key = 'T1:C1:1.1';
@@ -373,33 +375,90 @@ test('a DM agent board post goes to the DM that conversations.open returns, neve
 const SEND_MODULE = path.resolve(__dirname, '..', '..', '..', '..', '..', 'connectors', 'messaging', 'capabilities', 'tools', 'message', 'lib', 'send.js');
 const MESSAGE_COMMAND = path.resolve(SEND_MODULE, '..', '..', 'message.js');
 
-test('outbox.js and message send resolve to the one send function', async (store) => {
+// The port command's caller: a synthetic installation whose one messaging connector is a stub adapter that
+// records every operation in global.__divergenceCalls, and an agent folder whose name people see is Brigid.
+const DIVERGENCE_STUB = `'use strict';
+const calls = global.__divergenceCalls = global.__divergenceCalls || [];
+module.exports = {
+  address(value) { return /^[UW]/.test(value) ? { contact: value } : { group: value }; },
+  async account() { return 'T1'; },
+  operations: {
+    async 'message.send'(input) { calls.push({ op: 'message.send', text: input.text, as: input.as, thread: input.thread }); return { conversation: 'D1', id: '8.' + calls.length }; },
+    async 'message.file'({ send }) { calls.push({ op: 'message.file', file: send.file, as: send.as, thread: send.thread }); return { id: '8.' + calls.length, conversation: send.conversation || 'D1' }; },
+  },
+};
+`;
+function messageCaller() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-divergence-root-'));
+  const installation = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-divergence-inst-'));
+  fs.mkdirSync(path.join(root, 'connectors', 'slack', 'capabilities', 'tools', 'slack', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'connectors', 'slack', 'slack.json'), JSON.stringify({ description: 'stub', dependencies: [], type: 'messaging', provides: ['message.send', 'message.file'] }));
+  fs.writeFileSync(path.join(root, 'connectors', 'slack', 'capabilities', 'tools', 'slack', 'lib', 'messaging.js'), DIVERGENCE_STUB);
+  fs.mkdirSync(path.join(installation, '.rbtv', 'config', 'ignite'), { recursive: true });
+  fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'install.json'), JSON.stringify({ schema: 6, components: { 'connectors/slack': {} } }));
+  fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify({ slack: { ownerUserId: 'UOWNER' }, routes: {} }));
+  const home = path.join(installation, '.rbtv', 'agents', 'sara');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', external_name: 'Brigid', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:' }));
+  fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt\n');
+  const file = path.join(home, 'out.txt');
+  fs.writeFileSync(file, 'x');
+  global.__divergenceCalls = [];
+  return { root, installation, home, file };
+}
+
+test('outbox.js and message send resolve to the one send function, and both deliver and name the sender through it', async (store) => {
   const sendModule = require(SEND_MODULE);
+  const message = require(MESSAGE_COMMAND);
   assert.equal(typeof sendModule.send, 'function');
   assert.equal(require('./outbox.js').sendModule, sendModule, 'outbox.js shares the module');
-  assert.equal(require(MESSAGE_COMMAND).sendModule, sendModule, 'message.js shares the module');
+  assert.equal(message.sendModule, sendModule, 'message.js shares the module');
+  const fx = messageCaller();
+  // Over an 11,000-character limit, under the contract's 12,000: the one function posts it as text. A caller
+  // with its own implementation and its own limit would send a file, or never pass through here.
+  const text = 'z'.repeat(11_500);
   const key = 'T1:C1:1.1';
-  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-send-')), 'out.txt');
-  fs.writeFileSync(file, 'x');
-  store.enqueueOutbox({ id: 'r1', conversationKey: key, payload: { text: 'hello', files: [file] } });
+  store.upsertConversation({ key, agent: 'sara', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.enqueueOutbox({ id: 'r1', conversationKey: key, payload: { text, files: [fx.file] } });
   const original = sendModule.send;
+  const originalSender = sendModule.senderOf;
   const seen = [];
+  const named = [];
   sendModule.send = async (operations, input) => {
     seen.push({ operations: Object.keys(operations).sort(), input });
     return original(operations, input);
   };
+  sendModule.senderOf = (home) => { named.push(home); return originalSender(home); };
+  let out = '';
+  let err = '';
+  let slack;
+  let code;
   try {
-    const slack = markSlack();
-    const [result] = await deliverPending(store, { slack });
+    slack = markSlack();
+    const [result] = await deliverPending(store, { slack, home: fx.home });
     assert.equal(result.delivered, true);
-    assert.deepEqual(slack.calls, ['post hello', `upload ${file}`]);
-    assert.equal(seen.length, 1, 'one delivery, one call of the shared send function');
-    assert.deepEqual(seen[0].operations, ['message.file', 'message.send']);
-    assert.deepEqual([seen[0].input.group, seen[0].input.thread, seen[0].input.text, seen[0].input.files, seen[0].input.clientId], ['C1', '1.1', 'hello', [file], 'r1']);
+    code = await message.main(['--json', 'send', '--to', 'UOWNER', '--via', 'slack', text, '--file', fx.file], {
+      root: fx.root, cwd: fx.installation, env: { RBTV_AGENT_HOME: fx.home },
+      stdout: (t) => { out += t; }, stderr: (t) => { err += t; },
+    });
   } finally {
     sendModule.send = original;
+    sendModule.senderOf = originalSender;
   }
+  assert.equal(code, 0, err);
+  assert.equal(seen.length, 2, 'two callers, two calls of the one send function');
+  assert.deepEqual(seen.map((s) => s.operations), [['message.file', 'message.send'], ['message.file', 'message.send']]);
+  assert.deepEqual(seen.map((s) => [s.input.text.length, s.input.files.length]), [[11_500, 1], [11_500, 1]]);
+  assert.deepEqual([seen[0].input.group, seen[0].input.thread, seen[0].input.clientId], ['C1', '1.1', 'r1']);
+  assert.equal(seen[1].input.contact, 'UOWNER');
+  // Each connector saw the text posted as text, then the file: the one function's policy, in both callers.
+  assert.deepEqual(slack.calls.map((c) => c.split(' ')[0]), ['post', 'upload']);
+  assert.deepEqual(global.__divergenceCalls.map((c) => c.op), ['message.send', 'message.file']);
+  assert.equal(global.__divergenceCalls[0].text.length, 11_500);
+  assert.equal(JSON.parse(out).id, '8.1');
+  // The sender's name and avatar come from the one routine, for both callers.
+  assert.deepEqual(named, [fx.home, fx.home], 'both callers name the sender through sendModule.senderOf');
+  assert.deepEqual(seen.map((s) => s.input.as), [{ name: 'Brigid', avatar: ':owl:' }, { name: 'Brigid', avatar: ':owl:' }]);
   const row = store.db.prepare('SELECT * FROM outbox WHERE id=?').get('r1');
   assert.deepEqual([row.channel, row.ts, JSON.parse(row.posted)], ['C1', '9.1', ['9.1', '9.2']]);
 });

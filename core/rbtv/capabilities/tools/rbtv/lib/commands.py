@@ -1742,7 +1742,18 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
     # parser runs. Everything after `--` is an operand, never the flag.
     operands = raw.index("--") if "--" in raw else len(raw)
     as_json = "--json" in raw[:operands]
+    source_catalog = None
     try:
+        # Find the target before recognizing port flags: a mirror may introduce a port or replace
+        # a repository component whole. Help still exits in this first, configuration-free parse.
+        preliminary, _unknown = parser.parse_known_args(raw)
+        if preliminary.verb == "add" or (preliminary.verb == "agent" and preliminary.agent_verb == "add"):
+            if preliminary.verb == "agent":
+                source_target, _why = discover_installation(Path.cwd())
+            else:
+                source_target, _why = resolve_target(getattr(preliminary, "target", None), Path.cwd())
+            source_catalog = scan_all(source_target / ".rbtv" / "mirror", REPO_ROOT)
+            parser = build_parser(source_catalog[0])
         args = parser.parse_args(raw)
     except Refuse as exc:
         if as_json:
@@ -1750,8 +1761,8 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         else:
             _print_refused(exc.code, _text_refusal(exc),
                            outcome=getattr(exc, "outcome", "refused"))
-            print(f"next: {exc.next}", file=sys.stderr)
-        return 2
+            print(f"next: {getattr(exc, 'next', 'rbtv -h')}", file=sys.stderr)
+        return 2 if exc.code == "usage" else 1
     except SystemExit as exc:
         return int(exc.code or 0)
 
@@ -1793,7 +1804,7 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         args._why = why
         repo_tree = REPO_ROOT
         mirror_tree = target / ".rbtv" / "mirror"
-        catalog, shadowed = scan_all(mirror_tree, repo_tree)
+        catalog, shadowed = source_catalog if source_catalog is not None else scan_all(mirror_tree, repo_tree)
         if is_agent_target(target):
             catalog = attach_local(catalog, target)
         if args.verb == "interactive":

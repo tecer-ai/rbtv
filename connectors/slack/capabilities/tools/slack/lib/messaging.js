@@ -10,14 +10,16 @@
 // by .rbtv/config/install.json), read literally: never when the module loads, never printed.
 //
 // API
-// operations['message.send']({ group | contact, thread, text, as, clientId }) → { conversation, id }
+// operations['message.send']({ group | contact, thread, text, as, clientId }) → { conversation, id, thread }
 //   A contact (U…/W…) is resolved to its direct conversation with conversations.open; the text goes as
-//   markdown_text with the thread, the client id and the agent's name and avatar.
-// operations['message.file']({ send: { conversation | contact, thread, file, as } }) → { id, conversation }
-//   files.getUploadURLExternal, the bytes, files.completeUploadExternal; id is the share's ts.
-// operations['message.history']({ conversation, thread }) → { events }: conversations.replies oldest first,
-//   each in the contract's inbound event shape; a thread named by a reply's id is read as the reply's own
-//   thread (UNVERIFIED against the live API: Slack's reply carries thread_ts, which this follows).
+//   markdown_text with the thread, the client id and the agent's name and avatar. A thread is posted to at its
+//   root: conversations.replies on the given id says whether it is the root or a reply (its thread_ts), and the
+//   result's thread is that root, null for a message that starts a thread. UNVERIFIED against the live API
+//   (stub only): that conversations.replies on a reply's ts returns that reply with its thread_ts.
+// operations['message.file']({ send: { conversation | contact, thread, file, as } }) → { id, conversation, thread }
+//   files.getUploadURLExternal, the bytes, files.completeUploadExternal into the thread's root; id is the share's ts.
+// operations['message.history']({ conversation, thread }) → { events }: conversations.replies of the thread's
+//   root, oldest first, each in the contract's inbound event shape; a reply's id reads its whole thread.
 // operations['message.react']({ conversation, id, name, add }) → {}: reactions.add or reactions.remove.
 // operations['group.manage']({ create: { name } } | { join: { group } } | { invite: { group, contact } } | { archive: { group } }) → { group }
 // operations['approval.secure']({ post | update | whisper | open | push | change }) → { conversation, id } for a post or an
@@ -27,7 +29,8 @@
 // address(value) → { contact } for a user id, { group } for a channel id (C…, G…, or a D… conversation);
 //   anything else throws an Error with code 'address' and the sentence the port command prints as why.
 // account() → the team id of the token's workspace (auth.test), cached for the process.
-// An error from Slack is an Error 'slack answered <code>' with code 'thread' for a thread Slack does not find.
+// An error from Slack is an Error 'slack answered <code>' whose reason is the bare <code> (file_too_large), with
+// code 'thread' for a thread Slack does not find.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,9 +39,10 @@ const API = process.env.SLACK_API_URL || 'https://slack.com/api';
 const TOKEN_ENV = 'SLACK_BOT_TOKEN';
 const SELF_SUBTYPES = new Set(['message_changed', 'message_deleted', 'channel_join', 'group_join', 'bot_message']);
 
-function fail(code, message) {
+function fail(code, message, reason) {
   const error = new Error(message);
   if (code) error.code = code;
+  if (reason) error.reason = reason;
   return error;
 }
 
@@ -86,7 +90,7 @@ async function api(method, body = {}, { form = true } = {}) {
   const data = await response.json();
   if (!data.ok) {
     const code = data.error || 'unknown_error';
-    throw fail(code === 'thread_not_found' ? 'thread' : null, `slack answered ${code}${body.thread_ts ? ` for ${body.thread_ts} in ${body.channel}` : body.ts ? ` for ${body.ts} in ${body.channel}` : ''}`);
+    throw fail(code === 'thread_not_found' ? 'thread' : null, `slack answered ${code}${body.thread_ts ? ` for ${body.thread_ts} in ${body.channel}` : body.ts ? ` for ${body.ts} in ${body.channel}` : ''}`, code);
   }
   return data;
 }
@@ -124,6 +128,15 @@ async function conversationOf({ group, contact }) {
   return data.channel.id;
 }
 
+// The root of the thread a message id names: the id itself when it is a root, else the thread_ts of the reply it
+// names. One conversations.replies call on that id alone; a thread Slack does not find fails with code 'thread'.
+async function rootOf(conversation, ts) {
+  const data = await api('conversations.replies', { channel: conversation, ts, limit: 1 });
+  const first = (data.messages || [])[0];
+  if (!first) throw fail('thread', `slack answered no message for ${ts} in ${conversation}`, 'thread_not_found');
+  return first.thread_ts || first.ts;
+}
+
 function fileRef(file) {
   if (!file?.id) return null;
   return { id: file.id, ...(file.name ? { name: file.name } : {}), ...(file.mimetype ? { mimetype: file.mimetype } : {}) };
@@ -153,15 +166,17 @@ const operations = {
   async 'message.send'({ group, contact, thread, text, as, clientId }) {
     if (typeof text !== 'string' || !text.trim()) throw fail(null, 'slack answered no_text: the message is empty');
     const channel = await conversationOf({ group, contact });
+    const root = thread ? await rootOf(channel, thread) : null;
     const data = await api('chat.postMessage', {
-      channel, markdown_text: text, ...(thread ? { thread_ts: thread } : {}), ...(clientId ? { client_msg_id: clientId } : {}), ...sender(as),
+      channel, markdown_text: text, ...(root ? { thread_ts: root } : {}), ...(clientId ? { client_msg_id: clientId } : {}), ...sender(as),
     });
-    return { conversation: data.channel || channel, id: data.ts };
+    return { conversation: data.channel || channel, id: data.ts, thread: root };
   },
 
   async 'message.file'({ send } = {}) {
     if (!send?.file) throw fail(null, 'slack needs a file to send');
     const channel = await conversationOf({ group: send.conversation, contact: send.contact });
+    const root = send.thread ? await rootOf(channel, send.thread) : null;
     const stat = fs.statSync(send.file);
     if (!stat.isFile() || stat.size === 0) throw fail(null, `slack cannot send ${send.file}: not a file, or empty`);
     const filename = path.basename(send.file);
@@ -170,7 +185,7 @@ const operations = {
     const put = await fetch(granted.upload_url, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: fs.readFileSync(send.file) });
     if (!put.ok) throw fail(null, `slack answered HTTP ${put.status} on the file upload`);
     const done = await api('files.completeUploadExternal', {
-      files: [{ id: granted.file_id, title: filename }], channel_id: channel, ...(send.thread ? { thread_ts: send.thread } : {}), ...sender(send.as),
+      files: [{ id: granted.file_id, title: filename }], channel_id: channel, ...(root ? { thread_ts: root } : {}), ...sender(send.as),
     });
     const uploaded = (done.files || [])[0] || {};
     let id = null;
@@ -179,7 +194,7 @@ const operations = {
       if (rows[0]?.ts) { id = rows[0].ts; break; }
     }
     if (!id) throw fail(null, 'slack answered no message for the uploaded file');
-    return { id, conversation: channel };
+    return { id, conversation: channel, thread: root };
   },
 
   async 'message.history'({ conversation, thread } = {}) {
@@ -195,9 +210,7 @@ const operations = {
       } while (cursor);
       return messages;
     };
-    let messages = await read(thread);
-    const first = messages[0];
-    if (first && first.thread_ts && first.thread_ts !== first.ts && first.ts === thread) messages = await read(first.thread_ts);
+    const messages = await read(await rootOf(conversation, thread));
     const events = messages.map((m) => event(m, conversation, who)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     return { events };
   },

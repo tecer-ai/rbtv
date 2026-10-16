@@ -4,7 +4,7 @@
     "daemon.js": "c1d2fde2d3798d79c30163ee7b70ad7693f61ad1dbd1e51174d2d7a803666e3b",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "outbox.js": "95023cf482b7e90c54000dacf007ab6b90bce568e845121b2f9843155fd93656",
+    "outbox.js": "b9747f12f2b02d9bdf6f1fc7b861ec24032127b7b3b98a0ded232abb5630c539",
     "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",

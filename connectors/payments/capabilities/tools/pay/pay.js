@@ -17,6 +17,9 @@
 //   success, including a payment that waits for the owner (pending); 1 refused or failed (three stderr lines
 //   `pay: WHAT`, `  why:`, `  fix:`), and for a request the gate refused, failed or that was cancelled; 2
 //   invalid words (same form). --json: one object on stdout for a success; a refusal changes nothing.
+// The accounts are read through Ignite's own config reader (core/ignite/.../config.js loadConfig and
+// paymentsConfig, found from root), so a file Ignite refuses is refused here with Ignite's message and both
+// spellings of the list are read as Ignite reads them; pay keeps no reading of its own.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -62,19 +65,21 @@ function brl(cents) {
   return `${sign}R$ ${whole},${String(abs % 100).padStart(2, '0')}`;
 }
 
+// The first lines of the value refusals are the specification's literal words (S11): an amount, note or
+// key-form refusal names the option alone; qr, bill and recharge name the verb with a colon.
 function amountCents(text, verb) {
   const match = String(text).trim().match(/^(\d{1,9})(?:[.,](\d{1,2}))?$/);
-  if (!match) throw invalid(`${verb} refused: --amount "${text}" is not an amount in reais (like 99 or 99,90)`, 'the amount is reais with up to two decimals', `pay ${verb} -h`);
+  if (!match) throw invalid(`--amount "${text}" is not an amount in reais (like 99 or 99,90)`, 'the amount is reais with up to two decimals', `pay ${verb} -h`);
   const cents = Number(match[1]) * 100 + Number((match[2] || '0').padEnd(2, '0'));
-  if (cents === 0) throw invalid(`${verb} refused: --amount ${text} is below R$ 0,01`, 'a payment moves at least one cent', `pay ${verb} -h`);
+  if (cents === 0) throw invalid(`--amount ${text} is below R$ 0,01`, 'a payment moves at least one cent', `pay ${verb} -h`);
   return cents;
 }
 
 function noteText(text, verb) {
   const value = String(text).trim();
-  if (!value) throw invalid(`${verb} refused: --note is empty`, 'the recipient and the owner read the note', `pay ${verb} -h`);
-  if ([...value].length > NOTE_MAX) throw invalid(`${verb} refused: --note is longer than ${NOTE_MAX} characters`, `the recipient sees the note; the bank takes ${NOTE_MAX} characters`, `pay ${verb} -h`);
-  if (/[\r\n]/.test(value)) throw invalid(`${verb} refused: --note must be one line`, 'the recipient sees the note on one line', `pay ${verb} -h`);
+  if (!value) throw invalid('--note is empty', 'the recipient and the owner read the note', `pay ${verb} -h`);
+  if ([...value].length > NOTE_MAX) throw invalid(`--note is longer than ${NOTE_MAX} characters`, `the recipient sees the note; the bank takes ${NOTE_MAX} characters`, `pay ${verb} -h`);
+  if (/[\r\n]/.test(value)) throw invalid('--note must be one line', 'the recipient sees the note on one line', `pay ${verb} -h`);
   return value;
 }
 
@@ -308,18 +313,19 @@ function findInstallation(start) {
   }
 }
 
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-}
-
-// The payments section of Ignite's config: null when there is none; connectors from payments.connectors
-// (or payments.providers, the older spelling), ['asaas'] when neither is written.
+// The payments section of Ignite's config, read and validated by Ignite's own reader: null when the file or
+// the section is absent; { connectors } with Ignite's defaults and spellings otherwise; a file Ignite refuses
+// is refused here with Ignite's message, so pay and the gate never disagree about the same file.
 function paymentsSection(ctx) {
-  const config = ctx.installation ? readJson(path.join(ctx.installation, '.rbtv', 'config', 'ignite', 'config.json')) : null;
-  if (!config || !config.payments || typeof config.payments !== 'object') return null;
-  const names = Array.isArray(config.payments.connectors) ? config.payments.connectors
-    : Array.isArray(config.payments.providers) ? config.payments.providers : ['asaas'];
-  return { connectors: names };
+  const file = ctx.installation ? path.join(ctx.installation, '.rbtv', 'config', 'ignite', 'config.json') : null;
+  if (!file || !fs.existsSync(file)) return null;
+  const { loadConfig, paymentsConfig } = require(path.join(ctx.root, 'core', 'ignite', 'capabilities', 'tools', 'ignite', 'config.js'));
+  let config;
+  try { config = loadConfig(ctx.installation); } catch (error) {
+    throw refuse(`Ignite refuses its config: ${error.message}`, `pay reads the accounts through Ignite's own config reader (${file}), so both refuse the same file`, "the owner fixes the file; until then Ignite's gate refuses too");
+  }
+  const section = paymentsConfig(config);
+  return section ? { connectors: section.connectors } : null;
 }
 
 function defaultWhich(name) {
@@ -494,7 +500,7 @@ async function doPix(io, parsed, ctx) {
   if (opts.to === undefined) throw invalid('pix refused: --to KEY is required', 'the destination is never guessed', example);
   const key = String(opts.to).trim();
   if (!key) throw invalid('pix refused: --to is empty', 'the destination is never guessed', example);
-  if (key.startsWith('000201')) throw invalid(`pix refused: --to ${key.slice(0, 12)}… is a Pix QR code (copy and paste), not a Pix key`, 'a QR code is paid as a QR code', `pay qr --from ${opts.from} --code PAYLOAD --note TEXT`);
+  if (key.startsWith('000201')) throw invalid(`--to ${key.slice(0, 12)}… is a Pix QR code (copy and paste), not a Pix key`, 'a QR code is paid as a QR code', `pay qr --from ${opts.from} --code PAYLOAD --note TEXT`);
   if (opts.amount === undefined) throw invalid('pix refused: --amount VALUE is required', 'the amount is never guessed', example);
   const amount = amountCents(opts.amount, 'pix');
   const note = requireNote(opts, 'pix');
@@ -519,7 +525,7 @@ async function doQr(io, parsed, ctx) {
   requireFrom(opts, 'qr', example);
   if (opts.code === undefined) throw invalid('qr refused: --code PAYLOAD is required', 'the destination is never guessed', example);
   const code = String(opts.code).trim();
-  if (!code.startsWith('000201')) throw invalid('qr refused: --code must start with 000201', "a Pix QR code's copy-and-paste text is one line that starts with 000201", example);
+  if (!code.startsWith('000201')) throw invalid('qr: --code must start with 000201', "a Pix QR code's copy-and-paste text is one line that starts with 000201", example);
   if ([...code].length > QR_MAX || /[\r\n]/.test(code)) throw invalid(`qr refused: --code is longer than ${QR_MAX} characters or has line breaks`, 'the copy-and-paste text is one line', example);
   const note = requireNote(opts, 'qr');
   const amount = opts.amount === undefined ? null : amountCents(opts.amount, 'qr');
@@ -540,7 +546,7 @@ async function doBill(io, parsed, ctx) {
   requireFrom(opts, 'bill', example);
   if (opts.line === undefined) throw invalid('bill refused: --line DIGITS is required', 'the destination is never guessed', example);
   const digits = String(opts.line).replace(/\D/g, '');
-  if (digits.length !== 47 && digits.length !== 48) throw invalid(`bill refused: --line has ${digits.length} digits; a digitable line has 47 or 48`, 'a 44-digit barcode number is not accepted: copy the digitable line printed above it', example);
+  if (digits.length !== 47 && digits.length !== 48) throw invalid(`bill: --line has ${digits.length} digits; a digitable line has 47 or 48`, 'a 44-digit barcode number is not accepted: copy the digitable line printed above it', example);
   const note = requireNote(opts, 'bill');
   const account = await payingContext(ctx, opts, 'bill');
   const resolved = await resolveDraft(ctx, account, { method: 'bill', recipient: { key: digits, key_type: null }, amount_cents: null, note });
@@ -560,7 +566,7 @@ async function doRecharge(io, parsed, ctx) {
   if (opts.number === undefined) throw invalid('recharge refused: --number PHONE is required', 'the destination is never guessed', example);
   let digits = String(opts.number).replace(/\D/g, '');
   if (digits.length === 13 && digits.startsWith('55')) digits = digits.slice(2);
-  if (digits.length !== 11) throw invalid('recharge refused: a mobile number has 11 digits with its area code', 'like 11912345678 or "11 91234-5678" (quoted when it has spaces; +55 optional)', example);
+  if (digits.length !== 11) throw invalid('recharge: a mobile number has 11 digits with its area code', 'like 11912345678 or "11 91234-5678" (quoted when it has spaces; +55 optional)', example);
   if (opts.amount === undefined) throw invalid('recharge refused: --amount VALUE is required', 'the amount is never guessed', example);
   const amount = amountCents(opts.amount, 'recharge');
   const note = requireNote(opts, 'recharge');
@@ -574,6 +580,7 @@ async function doRecharge(io, parsed, ctx) {
 
 async function doList(io, parsed, ctx) {
   const { opts, json } = parsed;
+  if (parsed.positionals.length) throw invalid(`list takes no positional word: ${parsed.positionals.join(' ')}`, 'a state is chosen with --state', 'pay list -h');
   if (opts.state !== undefined && !STATES.includes(opts.state)) throw invalid(`list refused: --state ${opts.state} is not one of ${STATES.join(', ')}`, 'a state filters the list', 'pay list -h');
   const body = await ignite(ctx, ['list', ...(opts.state ? ['--state', opts.state] : [])]);
   const rows = body.payments || [];

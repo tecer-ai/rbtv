@@ -14,7 +14,7 @@ from unittest.mock import patch
 from discovery import Refuse, scan_all
 
 from lib.agents import add_agent
-from lib.commands import _HANDLERS
+from lib.commands import _HANDLERS, main
 from lib.parser import build_parser
 from lib.state import read_state
 
@@ -79,9 +79,10 @@ def needs_resolution(ctx) -> None:
           "connectors/talker" in said and "message.send" in said, said[:300])
 
     # A need already met by an installed component adds nothing more.
-    again_code, again_said, again_message = _add(target, one, "core/wanter")
+    again_code, again_said, again_message = _add(target, one, "core/wanter", "--json")
     check("NR-met — a second add finds the need met and adds nothing",
-          again_code == 0 and _booked(target) == ["connectors/talker", "core/wanter"], f"{again_code} {again_message} {again_said[:200]}")
+          again_code == 0 and json.loads(again_said)["needs"] == []
+          and _booked(target) == ["connectors/talker", "core/wanter"], f"{again_code} {again_message} {again_said[:200]}")
 
     two = _tree(tmp / "nr-two", ["chat", "chat2"])
     target2 = tmp / "nr-two-installation"
@@ -139,3 +140,33 @@ def needs_resolution(ctx) -> None:
         result = add_agent(ws1, "scout", ["want"], set(), one, False)
         check("NR-agent-one — with one provider the agent path installs it with no flag",
               "connectors/talker#talker" in result["files"], str(result.get("files")))
+
+        # Exercise the real dispatch and parser against repository plus mirror. The port exists only
+        # in the mirror, including a serves port, so repository-only flag discovery cannot pass.
+        repo = tmp / "nr-port-repo"
+        ws = tmp / "nr-port-installation"
+        wanter = _record(repo, "core", "wanter", needs=["beam.send"])
+        _file_md(wanter / "rules/want.md", "want", "The wanting rule", "# want\n")
+        mirror = ws / ".rbtv" / "mirror"
+        for name in ("light", "light2"):
+            comp = _record(mirror, "connectors", name, type="optical", serves=["beam"], provides=["beam.send"])
+            _file_md(comp / f"rules/{name}.md", name, "The light rule", "# light\n")
+        _agent(ws / ".rbtv/agents/scout")
+
+        def invoke(words):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                code = main(words)
+            return code, json.loads(output.getvalue())
+
+        with patch("lib.commands.REPO_ROOT", repo), contextlib.chdir(ws):
+            code, data = invoke(["add", "core/wanter", "--optical", "light2", "--harness", "claude", "--guidance", "none", "--target", str(ws), "--json"])
+            check("NR-mirror-port — add accepts a mirror-only port flag and installs the chosen component",
+                  code == 0 and _booked(ws) == ["connectors/light2", "core/wanter"], f"{code} {data}")
+            code, data = invoke(["agent", "add", "scout", "want", "--optical", "light", "--json"])
+            check("NR-mirror-agent — agent add accepts the installation mirror's port flag",
+                  code == 0 and "connectors/light" in (read_state(ws / ".rbtv/agents/scout").get("components") or {}), f"{code} {data}")
+            # A serves-only port also gets a flag, even though its noun differs from type.
+            code, data = invoke(["add", "core/wanter", "--beam", "light", "--target", str(ws), "--dry-run", "--json"])
+            check("NR-mirror-serves — a mirror-only serves port has a flag",
+                  code == 0, f"{code} {data}")

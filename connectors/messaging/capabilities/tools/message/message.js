@@ -2,11 +2,19 @@
 'use strict';
 
 // message — the port command of the messaging port (connectors/messaging): an agent sends a message to one
-// address as itself, replies inside a thread it has, reads a thread. It checks who may be messaged, picks
-// the connector --via names and hands the delivery to the connector's messaging adapter
-// (connectors/<name>/capabilities/tools/<name>/lib/messaging.js) through the one send function it shares
-// with Ignite's outbox (lib/send.js). Specification: projects' spec-message.md, phase 2 of the connector
-// architecture; `message -h` is the interface reference.
+// address as itself, replies inside a thread it has, reads a thread. It picks the connector --via names among
+// the installation's messaging connectors (the repository's connectors/ and the installation's .rbtv/mirror/,
+// the mirror's record replacing the repository's whole), asks its adapter whether the address is the
+// connector's form, checks who may be messaged, resolves the connector's account identity, and only then
+// hands the delivery to the adapter (connectors/<name>/capabilities/tools/<name>/lib/messaging.js) through the
+// one send function it shares with Ignite's outbox (lib/send.js). Specification: projects' spec-message.md,
+// phase 2 of the connector architecture; `message -h` is the interface reference.
+//
+// The order of the checks: the address form (S8) before the permission (S9), both before any operation runs:
+// classifying an address is local to the adapter (no token, no network), and an address no connector takes
+// can have no permission entry, so the refusal names the real reason. The account identity is read before
+// the post, so a send that fails after a post never hides its reference behind a later failure; a send that
+// delivered nothing is a failure that says so, never a reference to a message that does not exist.
 //
 // API
 // main(argv, deps?) → Promise<exit code>. deps: root (the folder holding connectors/, this repository),
@@ -57,24 +65,30 @@ function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
-// The messaging connectors: every component under connectors/ whose record is of the messaging port and
-// provides message.send, with whether it is installed here and whether it has a messaging adapter.
+// The messaging connectors: every component under connectors/ of the installation's merged catalog (the
+// repository, then the installation's .rbtv/mirror/, whose record of the same name replaces the repository's
+// whole, as the installer merges them) whose record is of the messaging port and provides message.send, with
+// whether it is installed here and whether it has a messaging adapter beside its record.
 function connectors(root, installation) {
   const book = installation ? readJson(path.join(installation, '.rbtv', 'config', 'install.json')) : null;
   const installed = new Set(Object.keys(book?.components || {}));
-  const folder = path.join(root, 'connectors');
-  const found = [];
-  let names = [];
-  try { names = fs.readdirSync(folder, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(); } catch { names = []; }
-  for (const name of names) {
-    const record = readJson(path.join(folder, name, `${name}.json`));
-    if (!record) continue;
-    const ports = [record.type, ...(Array.isArray(record.serves) ? record.serves : [])];
-    if (!ports.includes('messaging') || !(record.provides || []).includes('message.send')) continue;
-    const adapter = path.join(folder, name, 'capabilities', 'tools', name, 'lib', 'messaging.js');
-    found.push({ name, installed: installed.has(`connectors/${name}`), adapter, hasAdapter: fs.existsSync(adapter) });
+  const trees = [path.join(root, 'connectors')];
+  if (installation) trees.push(path.join(installation, '.rbtv', 'mirror', 'connectors'));
+  const found = new Map();
+  for (const folder of trees) {
+    let names = [];
+    try { names = fs.readdirSync(folder, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(); } catch { names = []; }
+    for (const name of names) {
+      const record = readJson(path.join(folder, name, `${name}.json`));
+      if (!record) continue;
+      found.delete(name);
+      const ports = [record.type, ...(Array.isArray(record.serves) ? record.serves : [])];
+      if (!ports.includes('messaging') || !(record.provides || []).includes('message.send')) continue;
+      const adapter = path.join(folder, name, 'capabilities', 'tools', name, 'lib', 'messaging.js');
+      found.set(name, { name, installed: installed.has(`connectors/${name}`), adapter, hasAdapter: fs.existsSync(adapter) });
+    }
   }
-  return found;
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const candidates = (all) => all.filter((c) => c.installed && c.hasAdapter);
@@ -98,7 +112,7 @@ function selectConnector(all, name, verb, to) {
   if (!chosen || !chosen.installed) {
     throw refuse(`${verb} refused: no connector named "${name}"`,
       `the messaging connectors installed here are: ${list.join(', ')}`,
-      example(list[0]));
+      `message send --via ${list[0]} …`);
   }
   if (!chosen.hasAdapter) {
     throw refuse(`${verb} refused: ${name} cannot deliver yet`,
@@ -178,6 +192,9 @@ function parse(argv) {
       continue;
     }
     positionals.push(word);
+  }
+  if (verb === 'history' && positionals.length) {
+    throw invalid(`history takes no TEXT; ${positionals.length === 1 ? `"${positionals[0]}" was` : `${positionals.length} words were`} given`, 'a thread is read by its reference', 'message history --thread REF   (message history -h)');
   }
   if (positionals.length > 1) throw invalid(`${verb} takes one TEXT; ${positionals.length} were given`, 'quote the text as one argument', `message ${verb} -h`);
   if (positionals.length === 1) text = positionals[0];
@@ -370,6 +387,18 @@ function emitSent(io, json, verb, result) {
   }
 }
 
+// A delivered message beside refused files: stdout kept what happened, stderr says what did not, exit 1.
+function reportRefusedFiles(io, body, ref, result) {
+  const failed = result.files.filter((f) => f.error);
+  if (!failed.length) return 0;
+  const textDelivered = body && (!result.textAsFile || result.files[0]?.id);
+  const delivered = textDelivered ? 'the text is delivered' : `${result.files.length - failed.length} of ${result.files.length} files are delivered`;
+  io.stderr(`message: ${failed.length} file${failed.length === 1 ? ' was' : 's were'} not sent: ${failed.map((f) => f.path).join(', ')}\n`);
+  io.stderr(`  why: ${failed[0].detail || failed[0].error}\n`);
+  io.stderr(`  fix: ${delivered}; send the file again with message reply --thread ${ref} --file PATH\n`);
+  return 1;
+}
+
 function whenOf(at) {
   const d = new Date(at);
   const pad = (n) => String(n).padStart(2, '0');
@@ -414,8 +443,8 @@ async function doSend(io, parsed, ctx) {
   }
   const files = checkFiles(opts, 'send');
   const connector = selectConnector(ctx.all, opts.via, 'send', to);
-  permission(ctx.installation, ctx.home, to);
   const adapter = loadAdapter(connector);
+  // The address form (S8) first, then the permission (S9): both local, before any operation runs.
   let where;
   try {
     where = typeof adapter.address === 'function' ? adapter.address(to) : { group: to };
@@ -427,6 +456,16 @@ async function doSend(io, parsed, ctx) {
     }
     throw error;
   }
+  permission(ctx.installation, ctx.home, to);
+  // The account identity before the post: a reference needs it, so a post is never followed by a failure
+  // that would hide the reference of a message that exists.
+  let account;
+  try {
+    account = typeof adapter.account === 'function' ? await adapter.account() : null;
+    if (typeof account !== 'string' || !account.trim() || account.includes(':')) throw new Error('the connector did not confirm its account identity');
+  } catch (error) {
+    throw refuse(`send failed: ${connector.name} did not answer`, error.message, 'run the same command again; nothing was sent');
+  }
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
@@ -434,21 +473,13 @@ async function doSend(io, parsed, ctx) {
   } catch (error) {
     throw refuse(`send failed: ${connector.name} did not deliver`, error.message, 'run the same command again; nothing was sent');
   }
-  const account = typeof adapter.account === 'function' ? await adapter.account() : '-';
   const ref = refOf(connector.name, account, result.conversation, result.id);
   const out = {
     connector: connector.name, account, to, conversation: result.conversation, thread: null, id: result.id, ref,
     as: as?.name || null, files: result.files.map((f) => (f.error ? { path: f.path, id: null, error: f.error } : { path: f.path, id: f.id })),
   };
   emitSent(io, parsed.json, 'send', { body: out, where: where.contact ? 'direct' : `group ${where.group}`, textAsFile: result.textAsFile });
-  const failed = result.files.filter((f) => f.error);
-  if (failed.length) {
-    io.stderr(`message: ${failed.length} file${failed.length === 1 ? ' was' : 's were'} not sent: ${failed.map((f) => f.path).join(', ')}\n`);
-    io.stderr(`  why: ${failed[0].error}\n`);
-    io.stderr(`  fix: the text is delivered; send the file again with message reply --thread ${ref} --file PATH\n`);
-    return 1;
-  }
-  return 0;
+  return reportRefusedFiles(io, body, ref, result);
 }
 
 async function doReply(io, parsed, ctx) {
@@ -469,20 +500,14 @@ async function doReply(io, parsed, ctx) {
     if (error.code === 'thread') throw refuse('reply failed: thread not found', error.message, 'message history --thread REF of a reference message send printed; nothing was sent');
     throw refuse(`reply failed: ${connector.name} did not deliver`, error.message, 'run the same command again; nothing was sent');
   }
+  // thread is the thread's root as the connector resolved it: a reply's reference names its thread's root.
   const out = {
-    connector: connector.name, account: ref.account, to: null, conversation: result.conversation, thread: ref.id, id: result.id,
+    connector: connector.name, account: ref.account, to: null, conversation: result.conversation, thread: result.thread ?? ref.id, id: result.id,
     ref: refOf(connector.name, ref.account, result.conversation, result.id),
     as: as?.name || null, files: result.files.map((f) => (f.error ? { path: f.path, id: null, error: f.error } : { path: f.path, id: f.id })),
   };
   emitSent(io, parsed.json, 'reply', { body: out, threadRef: ref.ref, textAsFile: result.textAsFile });
-  const failed = result.files.filter((f) => f.error);
-  if (failed.length) {
-    io.stderr(`message: ${failed.length} file${failed.length === 1 ? ' was' : 's were'} not sent: ${failed.map((f) => f.path).join(', ')}\n`);
-    io.stderr(`  why: ${failed[0].error}\n`);
-    io.stderr(`  fix: the text is delivered; send the file again with message reply --thread ${ref.ref} --file PATH\n`);
-    return 1;
-  }
-  return 0;
+  return reportRefusedFiles(io, body, ref.ref, result);
 }
 
 async function doHistory(io, parsed, ctx) {

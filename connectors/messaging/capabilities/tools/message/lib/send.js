@@ -3,40 +3,41 @@
 // The one send function: Ignite's outbox.js and the `message send` command both deliver through it, so
 // the two cannot diverge (phase 2 of the connector architecture, test 1). It holds the policy both callers
 // need and no connector should: post the text once, send a text over MAX_TEXT characters as a file named
-// message.md with no text, upload each file after the text with no caption, return every id. It holds no
-// retry and no store.
+// message.md with no text, upload each file after the text with no caption as a message of the text's
+// thread, return every id, and fail as a whole when nothing was delivered. It holds no retry and no store.
 //
 // API
-// send(operations, input) → Promise<{ conversation, id, files, textAsFile }>
+// send(operations, input) → Promise<{ conversation, id, thread, files, textAsFile }>
 //   operations — the messaging contract's Adapter shape: operations['message.send'] and operations['message.file'],
 //   one async function each (connectors/messaging/capabilities/methods/messaging-contract.md).
 //   input — the contract's message.send input plus the files: { group | contact, thread, text, files, as, clientId }.
 //   conversation and id are the connector's values for the first message delivered (the text, or the first
-//   file when there is no text); files is one { path, id } per attachment in order, or { path, id: null, error }
-//   for one the connector refused (the text stays delivered: the caller decides what a partial means);
-//   textAsFile is null, or { chars } when the text went as a file. A text the connector refuses throws.
+//   file when there is no text). thread is the thread every message joined: null when input.thread was null
+//   (the first message starts the thread the later ones join), else the thread's root as the connector
+//   resolved it (a reply's id names its thread; the connector answers with the root), or input.thread when the
+//   connector names none. files is one { path, id } per attachment in order, or { path, id: null, error, detail }
+//   for one the connector refused: error is the service's bare answer (file_too_large) when the connector
+//   gives one (error.reason), else its message; detail is the connector's sentence. A refused file beside a
+//   delivered message is a partial the caller reports; when nothing at all was delivered the function throws
+//   the first refusal, so no caller prints a reference for a message that does not exist. textAsFile is null,
+//   or { chars } when the text went as a file. A text the connector refuses throws.
 // MAX_TEXT — 12,000 characters, the contract's ceiling for a message's text.
-// senderOf(home) → { name, avatar } from an agent folder's agent.json, or undefined without one: the display
-//   name is external_name when set, else the name with a capital first letter.
+// senderOf(home) → { name, avatar } from an agent folder, read by cast's readAgent, or undefined without one:
+//   the name people see is external_name when set, else the name with a capital first letter. The one routine
+//   both callers name the sender with.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { readAgent } = require('../../../../../../core/cast/capabilities/tools/cast/lib/agent');
 
 const MAX_TEXT = 12_000;
 
 function senderOf(home) {
   if (!home) return undefined;
-  let agent;
-  try {
-    agent = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
-  } catch {
-    return undefined;
-  }
-  if (!agent || typeof agent.name !== 'string' || !agent.name) return undefined;
-  const external = typeof agent.external_name === 'string' && agent.external_name.trim() ? agent.external_name.trim()
-    : typeof agent.externalName === 'string' && agent.externalName.trim() ? agent.externalName.trim() : null;
-  const name = external || agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
+  const agent = readAgent(home).agent;
+  if (!agent) return undefined;
+  const name = agent.externalName || agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
   return { name, avatar: agent.avatar };
 }
 
@@ -47,9 +48,16 @@ function textFile(text) {
   return file;
 }
 
+function refusalOf(file, error) {
+  const detail = error?.message || String(error);
+  return { path: file, id: null, error: error?.reason || detail, detail };
+}
+
 async function send(operations, input) {
   if (typeof operations?.['message.send'] !== 'function') throw new Error("the connector has no operations['message.send']");
-  const { thread = null, as, clientId } = input;
+  const { as, clientId } = input;
+  const given = input.thread ?? null;
+  let thread = given;
   let text = typeof input.text === 'string' ? input.text : '';
   const files = Array.isArray(input.files) ? input.files.slice() : [];
   let textAsFile = null;
@@ -61,6 +69,7 @@ async function send(operations, input) {
     text = '';
   }
   try {
+    if (files.length && typeof operations['message.file'] !== 'function') throw new Error("the connector has no operations['message.file']");
     let conversation = input.group || null;
     let id = null;
     if (text || !files.length) {
@@ -68,8 +77,9 @@ async function send(operations, input) {
       if (!posted?.conversation || !posted?.id) throw new Error('the connector did not confirm the message');
       conversation = posted.conversation;
       id = posted.id;
+      // The later messages join the text's thread: the root the connector resolved, or the text itself.
+      thread = given == null ? id : (posted.thread ?? thread);
     }
-    if (files.length && typeof operations['message.file'] !== 'function') throw new Error("the connector has no operations['message.file']");
     const sent = [];
     for (const file of files) {
       const target = conversation ? { conversation } : { contact: input.contact };
@@ -77,13 +87,23 @@ async function send(operations, input) {
         const uploaded = await operations['message.file']({ send: { ...target, thread, file, as } });
         if (!uploaded?.id) throw new Error('the connector did not confirm the file');
         sent.push({ path: file, id: uploaded.id });
-        if (!id) id = uploaded.id;
+        if (!id) {
+          id = uploaded.id;
+          thread = given == null ? uploaded.id : (uploaded.thread ?? thread);
+        }
         if (!conversation && uploaded.conversation) conversation = uploaded.conversation;
       } catch (error) {
-        sent.push({ path: file, id: null, error: error.message || String(error) });
+        sent.push(refusalOf(file, error));
       }
     }
-    return { conversation, id, files: sent, textAsFile };
+    if (id == null) {
+      // Nothing was delivered: a failure of the whole send, never a partial with no reference.
+      const first = sent.find((f) => f.error);
+      const error = new Error(first ? first.detail : 'the connector did not confirm the message');
+      if (first) error.reason = first.error;
+      throw error;
+    }
+    return { conversation, id, thread: given == null ? null : thread, files: sent, textAsFile };
   } finally {
     if (temporary) {
       try { fs.rmSync(path.dirname(temporary), { recursive: true, force: true }); } catch { /* a temp file */ }

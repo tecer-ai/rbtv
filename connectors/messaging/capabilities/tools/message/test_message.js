@@ -15,6 +15,8 @@ const { spawnSync } = require('node:child_process');
 
 const PROGRAM = path.join(__dirname, 'message.js');
 const SEND = path.join(__dirname, 'lib', 'send.js');
+const { example } = require('../../../../../core/cast/capabilities/tools/cast/example-models');
+const AGENT_MODEL = example('a claude CLI model for the agent record', (m) => m.harness === 'claude' && m.mode === 'cli');
 
 const failures = [];
 const tests = [];
@@ -32,7 +34,7 @@ function record(op, input) {
   calls.push({ op, input });
   fs.writeFileSync(file, JSON.stringify(calls));
 }
-function fail(code, message) { const e = new Error(message); e.code = code; throw e; }
+function fail(code, message, reason) { const e = new Error(message); e.code = code; if (reason) e.reason = reason; throw e; }
 function nextId(s) {
   const ids = s.ids || [];
   const id = ids.shift();
@@ -46,20 +48,24 @@ module.exports = {
     if (new RegExp(s.group).test(value)) return { group: value };
     fail('address', s.addressWhy.replace('ADDRESS', value));
   },
-  async account() { return scenario().account; },
+  async account() { const s = scenario(); if (s.accountError) fail(null, s.accountError); return s.account; },
   operations: {
     async 'message.send'(input) {
       record('message.send', input);
       const s = scenario();
-      if (s.sendError) fail(s.sendCode || null, s.sendError);
+      if (s.sendError) fail(s.sendCode || null, s.sendError, s.sendReason);
       if (!input.text) fail(null, NAME + ' answered no_text');
       const conversation = input.contact ? s.direct : input.group;
-      return { conversation, id: nextId(s) };
+      // The thread's root, as the connector resolves it (scenario.roots maps a reply's id to its root).
+      const thread = input.thread ? ((s.roots || {})[input.thread] || input.thread) : null;
+      return { conversation, id: nextId(s), thread };
     },
     async 'message.file'(input) {
       record('message.file', input);
       const s = scenario();
-      if (s.fileError) fail(null, s.fileError);
+      if (s.fileError) fail(null, s.fileError, s.fileReason);
+      const specific = (s.fileErrors || {})[path.basename(input.send.file)];
+      if (specific) fail(null, 'slack answered ' + specific, specific);
       const conversation = input.send.conversation || s.direct;
       return { id: nextId(s), conversation };
     },
@@ -113,7 +119,7 @@ function fixture() {
   }));
   const home = path.join(installation, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(path.join(home, 'out'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', harness: 'claude', model: 'opus-5-5', effort: 'medium', avatar: ':owl:' }));
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0], avatar: ':owl:' }));
   fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt\n');
   fs.writeFileSync(path.join(home, 'out', 'P-0003.pdf'), '%PDF-1.4 fake');
   return { root, installation, home, lib, scenario: (change) => {
@@ -213,6 +219,7 @@ test('S11 invalid words exit 2 with the three lines', async () => {
     [['sned', 'hi'], 'message: unknown command "sned"; the commands are send, reply, history', null, null],
     [['reply', 'hi'], 'message: reply needs --thread REF', null, null],
     [['history'], 'message: history needs --thread REF', null, null],
+    [['history', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160000.000100', 'extra'], 'message: history takes no TEXT; "extra" was given', 'why: a thread is read by its reference', 'fix: message history --thread REF   (message history -h)'],
     [['send', '--nope', '--to', 'U0OWNER001', '--via', 'slack', 'hi'], 'message: send has no option --nope', null, null],
   ];
   for (const [argv, what, why, fix] of cases) {
@@ -326,14 +333,26 @@ test('S6: --via names a connector without an adapter, or an unknown name', async
   assert.deepEqual(lines(unknown.err), [
     'message: send refused: no connector named "signal"',
     '  why: the messaging connectors installed here are: slack',
-    '  fix: message send --to U0OWNER001 --via slack TEXT',
+    '  fix: message send --via slack …',
   ]);
   assert.deepEqual(fx.calls(), []);
 });
 
 test('S8: the adapter refuses an address that is not its form; the why line is the adapter\'s sentence', async () => {
   const fx = fixture();
+  // The specification's own example: a mail address through slack reaches S8, not S9 (the address form is
+  // checked before the permission: an address no connector takes can have no permission entry).
+  const mail = await run(fx, ['send', '--to', 'pia@example.com', '--via', 'slack', 'Oi']);
+  assert.equal(mail.code, 1);
+  assert.deepEqual(lines(mail.err), [
+    'message: send refused: slack does not take the address pia@example.com',
+    '  why: slack addresses are a user id (U...) or a channel id (C...); a mail address is google\'s',
+    '  fix: message send --to pia@example.com --via CONNECTOR TEXT, or an address in slack\'s form',
+  ]);
+  assert.deepEqual(fx.calls(), [], 'no operation ran');
   installWhatsapp(fx);
+  const mail2 = await run(fx, ['send', '--to', 'pia@example.com', '--via', 'slack', 'Oi']);
+  assert.equal(lines(mail2.err)[2], '  fix: message send --to pia@example.com --via whatsapp TEXT, or an address in slack\'s form');
   const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'whatsapp', 'Oi']);
   assert.equal(r.code, 1);
   assert.deepEqual(lines(r.err), [
@@ -473,7 +492,7 @@ test('S10: a connector error on send is reported once, exit 1, with --json nothi
 test('S4 partial: the text posted and a file refused; stdout keeps what happened, stderr what did not, exit 1', async () => {
   const fx = fixture();
   const file = path.join(fx.home, 'out', 'P-0003.pdf');
-  fx.scenario({ ids: ['1792160100.000400'], fileError: 'slack answered file_too_large' });
+  fx.scenario({ ids: ['1792160100.000400'], fileError: 'slack answered file_too_large', fileReason: 'file_too_large' });
   const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Receipt', '--file', file]);
   assert.equal(r.code, 1);
   assert.deepEqual(lines(r.out), [
@@ -485,11 +504,11 @@ test('S4 partial: the text posted and a file refused; stdout keeps what happened
     '  why: slack answered file_too_large',
     `  fix: the text is delivered; send the file again with message reply --thread slack:T0BJAM8PACU:D0OWNERDM1:1792160100.000400 --file PATH`,
   ]);
-  fx.scenario({ ids: ['1792160100.000400'], fileError: 'slack answered file_too_large' });
+  fx.scenario({ ids: ['1792160100.000400'], fileError: 'slack answered file_too_large', fileReason: 'file_too_large' });
   const json = await run(fx, ['--json', 'send', '--to', 'U0OWNER001', '--via', 'slack', 'Receipt', '--file', file]);
   assert.equal(json.code, 1);
   const body = JSON.parse(json.out);
-  assert.deepEqual(body.files, [{ path: file, id: null, error: 'slack answered file_too_large' }]);
+  assert.deepEqual(body.files, [{ path: file, id: null, error: 'file_too_large' }], 'the JSON error is the service\'s bare answer; the why line is the sentence');
   assert.equal(body.ref, 'slack:T0BJAM8PACU:D0OWNERDM1:1792160100.000400');
   assert.deepEqual(lines(json.err).length, 3);
 });
@@ -505,7 +524,8 @@ test('files: uploaded after the text with no caption, in order; a missing path i
   assert.equal(body.id, '1792160000.000100');
   const calls = fx.calls();
   assert.deepEqual(calls.map((c) => c.op), ['message.send', 'message.file', 'message.file']);
-  assert.deepEqual(calls[1].input, { send: { conversation: 'D0OWNERDM1', thread: null, file, as: { name: 'Sara', avatar: ':owl:' } } });
+  assert.deepEqual(calls[1].input, { send: { conversation: 'D0OWNERDM1', thread: '1792160000.000100', file, as: { name: 'Sara', avatar: ':owl:' } } }, 'a file after the text is a message of the text\'s thread');
+  assert.equal(calls[2].input.send.thread, '1792160000.000100');
   const missing = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Receipt', '--file', path.join(fx.home, 'missing.pdf')]);
   assert.equal(missing.code, 1);
   assert.match(missing.err, /^message: send refused: no file at .*missing\.pdf\n/);
@@ -548,6 +568,184 @@ test('-- ends the options so a text starting with - is sent; --text-file reads t
   const file = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', '--text-file', textFile]);
   assert.equal(file.code, 0, file.err);
   assert.equal(fx.calls()[1].input.text, 'from a file with $HOME\n');
+});
+
+test('a reply to a reply\'s reference goes to the thread\'s root: the adapter resolves it, message echoes it as thread, the file follows it', async () => {
+  const fx = fixture();
+  const file = path.join(fx.home, 'out', 'P-0003.pdf');
+  fx.scenario({ ids: ['1792160060.000300', '1792160060.000301'], roots: { '1792160030.000200': '1792160000.000100' } });
+  const r = await run(fx, ['--json', 'reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', 'Done.', '--file', file]);
+  assert.equal(r.code, 0, r.err);
+  const body = JSON.parse(r.out);
+  assert.equal(body.thread, '1792160000.000100', 'the root, not the reply the reference named');
+  assert.equal(body.id, '1792160060.000300');
+  assert.equal(body.ref, 'slack:T0BJAM8PACU:D0OWNERDM1:1792160060.000300');
+  const calls = fx.calls();
+  assert.deepEqual(calls.map((c) => c.op), ['message.send', 'message.file']);
+  assert.equal(calls[0].input.thread, '1792160030.000200', 'the adapter is given the reference as written and resolves the root itself');
+  assert.equal(calls[1].input.send.thread, '1792160000.000100', 'the file goes into the resolved root');
+  fx.scenario({ ids: ['1792160060.000302'] });
+  const plain = await run(fx, ['--json', 'reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160000.000100', 'Ok']);
+  assert.equal(JSON.parse(plain.out).thread, '1792160000.000100', 'a root reference stays the root');
+});
+
+test('the account identity is resolved before any post: a failing account() sends nothing and says so', async () => {
+  const fx = fixture();
+  fx.scenario({ accountError: 'slack answered HTTP 503 on auth.test' });
+  const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Oi']);
+  assert.equal(r.code, 1);
+  assert.equal(r.out, '', 'no reference is printed');
+  assert.deepEqual(lines(r.err), [
+    'message: send failed: slack did not answer',
+    '  why: slack answered HTTP 503 on auth.test',
+    '  fix: run the same command again; nothing was sent',
+  ]);
+  assert.deepEqual(fx.calls(), [], 'no operation ran, so "nothing was sent" is true');
+});
+
+test('an absent account identity refuses before delivery', async () => {
+  const fx = fixture();
+  fx.scenario({ account: null });
+  const r = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Oi']);
+  assert.equal(r.code, 1);
+  assert.equal(r.out, '', 'no fabricated account in a reference');
+  assert.deepEqual(fx.calls(), [], 'an identity is required before posting');
+});
+
+test('a missing file operation refuses before posting text', async () => {
+  const calls = [];
+  await assert.rejects(require(SEND).send({ 'message.send': async () => {
+    calls.push('post');
+    return { conversation: 'D1', id: '1.1' };
+  } }, { group: 'D1', text: 'hello', files: ['file.pdf'] }), /message.file/);
+  assert.deepEqual(calls, [], 'a missing upload operation is known before delivery');
+});
+
+test('a files-only send whose upload fails is a failure, not a partial: no reference, no "text is delivered"', async () => {
+  const fx = fixture();
+  const file = path.join(fx.home, 'out', 'P-0003.pdf');
+  fx.scenario({ fileError: 'slack answered file_too_large', fileReason: 'file_too_large' });
+  for (const argv of [['send', '--to', 'U0OWNER001', '--via', 'slack', '--file', file], ['--json', 'send', '--to', 'U0OWNER001', '--via', 'slack', '--file', file]]) {
+    const r = await run(fx, argv);
+    assert.equal(r.code, 1, argv.join(' '));
+    assert.equal(r.out, '', 'nothing was delivered, so no reference and no object');
+    assert.deepEqual(lines(r.err), [
+      'message: send failed: slack did not deliver',
+      '  why: slack answered file_too_large',
+      '  fix: run the same command again; nothing was sent',
+    ]);
+  }
+  assert.equal(fx.calls().length, 2, 'one upload attempt per run, no retry');
+});
+
+test('a failed long-text upload beside a delivered attachment never claims the text was delivered', async () => {
+  const fx = fixture();
+  const file = path.join(fx.home, 'out', 'P-0003.pdf');
+  fx.scenario({ fileErrors: { 'message.md': 'file_too_large' }, ids: ['1792160060.000301'] });
+  const r = await run(fx, ['--json', 'send', '--to', 'U0OWNER001', '--via', 'slack', 'x'.repeat(12001), '--file', file]);
+  assert.equal(r.code, 1);
+  assert.equal(JSON.parse(r.out).ref, 'slack:T0BJAM8PACU:D0OWNERDM1:1792160060.000301', 'keep the confirmed attachment');
+  assert.doesNotMatch(r.err, /the text is delivered/);
+  assert.match(r.err, /1 of 2 files are delivered/);
+});
+
+test('a messaging connector in the installation\'s mirror is a candidate, and a mirror record replaces the repository\'s whole', async () => {
+  const fx = fixture();
+  // Transition B through the mirror: connectors/whatsapp with its adapter lives in .rbtv/mirror/, not in the repository.
+  const mirror = path.join(fx.installation, '.rbtv', 'mirror', 'connectors');
+  fs.mkdirSync(path.join(mirror, 'whatsapp'), { recursive: true });
+  fs.writeFileSync(path.join(mirror, 'whatsapp', 'whatsapp.json'), JSON.stringify({ description: 'whatsapp from the mirror', dependencies: [], type: 'messaging', provides: ['message.send', 'message.history', 'message.file'] }));
+  const lib = path.join(mirror, 'whatsapp', 'capabilities', 'tools', 'whatsapp', 'lib');
+  fs.mkdirSync(lib, { recursive: true });
+  fs.writeFileSync(path.join(lib, 'messaging.js'), STUB_ADAPTER);
+  fs.writeFileSync(path.join(lib, 'scenario.json'), JSON.stringify({
+    account: '5511999990000', direct: '5511912345678@s.whatsapp.net', contact: '^\\d{12,13}$', group: '@g\\.us$', addressWhy: 'ADDRESS is neither', ids: ['3EB0MIRROR01'],
+  }));
+  const two = await run(fx, ['send', '--to', 'U0OWNER001', 'Oi']);
+  assert.equal(lines(two.err)[1], '  why: every send names the connector that delivers; the messaging connectors installed here are: slack, whatsapp');
+  const help = await run(fx, ['-h']);
+  assert.match(help.out, /Connectors: slack \(installed\), whatsapp \(installed\)\./);
+  // A mirror record of slack replaces the shipped record whole: without provides, slack is no longer a candidate.
+  fs.mkdirSync(path.join(mirror, 'slack'), { recursive: true });
+  fs.writeFileSync(path.join(mirror, 'slack', 'slack.json'), JSON.stringify({ description: 'slack from the mirror', dependencies: [], type: 'messaging' }));
+  const gone = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Oi']);
+  assert.deepEqual(lines(gone.err).slice(0, 2), ['message: send refused: no connector named "slack"', '  why: the messaging connectors installed here are: whatsapp']);
+});
+
+test('a mirror-only connector is discovered and delivers through its own adapter', async () => {
+  const fx = fixture();
+  const folder = path.join(fx.installation, '.rbtv', 'mirror', 'connectors', 'chat');
+  const lib = path.join(folder, 'capabilities', 'tools', 'chat', 'lib');
+  fs.mkdirSync(lib, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'chat.json'), JSON.stringify({ description: 'mirror chat', dependencies: [], type: 'messaging', provides: ['message.send'] }));
+  fs.writeFileSync(path.join(lib, 'messaging.js'), STUB_ADAPTER);
+  fs.writeFileSync(path.join(lib, 'scenario.json'), JSON.stringify({ account: 'mirror-account', group: '^C', contact: '^U', ids: ['mirror-id'] }));
+  const book = path.join(fx.installation, '.rbtv', 'config', 'install.json');
+  const state = JSON.parse(fs.readFileSync(book, 'utf8'));
+  state.components['connectors/chat'] = {};
+  fs.writeFileSync(book, JSON.stringify(state));
+  const r = await run(fx, ['--json', 'send', '--to', 'C0SARA0001', '--via', 'chat', 'Hello']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(JSON.parse(r.out).ref, 'chat:mirror-account:C0SARA0001:mirror-id');
+});
+
+test('real Slack adapter integration: S8, S4 JSON, identity-before-post, and files-only replies echo the resolved root', async () => {
+  const fx = fixture();
+  const real = path.resolve(__dirname, '../../../../slack/capabilities/tools/slack/lib/messaging.js');
+  delete require.cache[real];
+  fs.writeFileSync(path.join(fx.lib, 'messaging.js'), `module.exports = require(${JSON.stringify(real)});\n`);
+  const originalFetch = global.fetch;
+  const originalToken = process.env.SLACK_BOT_TOKEN;
+  process.env.SLACK_BOT_TOKEN = 'xoxb-test-integration';
+  const calls = [];
+  let identityFails = true;
+  let uploadFails = true;
+  global.fetch = async (url, opts) => {
+    const method = String(url).split('/').pop();
+    const params = typeof opts.body === 'string' ? Object.fromEntries(new URLSearchParams(opts.body)) : {};
+    calls.push({ method, params });
+    let data;
+    if (method === 'auth.test') data = identityFails ? { ok: false, error: 'invalid_auth' } : { ok: true, team_id: 'T0BJAM8PACU' };
+    else if (method === 'conversations.open') data = { ok: true, channel: { id: 'D0OWNERDM1' } };
+    else if (method === 'chat.postMessage') data = { ok: true, channel: params.channel, ts: '1792160100.000400' };
+    else if (method === 'conversations.replies') data = { ok: true, messages: [{ ts: '1792160000.000100', text: 'parent first' }] };
+    else if (method === 'files.getUploadURLExternal') data = uploadFails ? { ok: false, error: 'file_too_large' } : { ok: true, file_id: 'F1', upload_url: 'https://stub/upload' };
+    else if (method === 'upload') data = {};
+    else if (method === 'files.completeUploadExternal') data = { ok: true, files: [{ shares: { private: { D0OWNERDM1: [{ ts: '1792160060.000301' }] } } }] };
+    else throw new Error(`unexpected Slack call: ${method}`);
+    return { ok: true, json: async () => data };
+  };
+  try {
+    const badAddress = await run(fx, ['send', '--to', 'pia@example.com', '--via', 'slack', 'Oi']);
+    assert.equal(badAddress.code, 1);
+    assert.equal(lines(badAddress.err)[0], 'message: send refused: slack does not take the address pia@example.com');
+    assert.equal(lines(badAddress.err)[1], "  why: slack addresses are a user id (U...) or a channel id (C...); a mail address is google's");
+    assert.deepEqual(calls, [], 'S8 is local');
+    const noIdentity = await run(fx, ['send', '--to', 'U0OWNER001', '--via', 'slack', 'Oi']);
+    assert.equal(noIdentity.code, 1);
+    assert.equal(noIdentity.out, '');
+    assert.deepEqual(calls.map((c) => c.method), ['auth.test'], 'identity failure prevents posting');
+    identityFails = false;
+    calls.length = 0;
+    const file = path.join(fx.home, 'out', 'P-0003.pdf');
+    const partial = await run(fx, ['--json', 'send', '--to', 'U0OWNER001', '--via', 'slack', 'Receipt', '--file', file]);
+    assert.equal(partial.code, 1);
+    assert.deepEqual(JSON.parse(partial.out).files, [{ path: file, id: null, error: 'file_too_large' }]);
+    assert.equal(JSON.parse(partial.out).ref, 'slack:T0BJAM8PACU:D0OWNERDM1:1792160100.000400');
+    assert.equal(calls[0].method, 'auth.test');
+    assert.match(partial.err, /why: slack answered file_too_large/);
+    uploadFails = false;
+    calls.length = 0;
+    const reply = await run(fx, ['--json', 'reply', '--thread', 'slack:T0BJAM8PACU:D0OWNERDM1:1792160030.000200', '--file', file]);
+    assert.equal(reply.code, 0, reply.err);
+    assert.equal(JSON.parse(reply.out).thread, '1792160000.000100');
+    assert.equal(calls.find((c) => c.method === 'files.completeUploadExternal').params.thread_ts, '1792160000.000100');
+  } finally {
+    global.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.SLACK_BOT_TOKEN;
+    else process.env.SLACK_BOT_TOKEN = originalToken;
+    delete require.cache[real];
+  }
 });
 
 (async () => {

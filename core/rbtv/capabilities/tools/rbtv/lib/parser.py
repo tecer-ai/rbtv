@@ -21,21 +21,24 @@ from .subagents import ON_FORM
 PORT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
-def port_names() -> list[str]:
-    """The ports the repository's component records name in `type` and `serves`,
-    read from `<module>/<component>/<component>.json`: one `--<port> NAME` flag
-    each on `add` and `agent add`, naming the provider of a need when more than
-    one component provides it."""
+def port_names(catalog: dict | None = None) -> list[str]:
+    """Ports of the merged installation catalog. Before the target is known,
+    repository records supply the preliminary parser's flags."""
     found: set[str] = set()
-    for record in sorted(REPO_ROOT.glob("*/*/*.json")):
-        if record.stem != record.parent.name or record.parent.parent.name.startswith("."):
-            continue
-        try:
-            data = json.loads(record.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
+    records = []
+    if catalog is not None:
+        records = list(catalog.values())
+    else:
+        for record in sorted(REPO_ROOT.glob("*/*/*.json")):
+            if record.stem != record.parent.name or record.parent.parent.name.startswith("."):
+                continue
+            try:
+                data = json.loads(record.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                records.append(data)
+    for data in records:
         for value in [data.get("type"), *(data.get("serves") or [])]:
             if isinstance(value, str) and PORT_NAME.match(value):
                 found.add(value)
@@ -52,9 +55,9 @@ class PortChoice(argparse.Action):
         setattr(namespace, "port_choices", current)
 
 
-def port_flags(dest) -> None:
+def port_flags(dest, catalog: dict | None = None) -> None:
     taken = set(dest._option_string_actions)
-    for port in port_names():
+    for port in port_names(catalog):
         if f"--{port}" in taken:
             continue
         dest.add_argument(f"--{port}", action=PortChoice, dest="port_choices", default=None,
@@ -76,7 +79,7 @@ SETTING_VERB = {"harness": "rbtv configure --harness <harnesses>",
                 "guidance": "rbtv configure --guidance <name>"}
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(catalog: dict | None = None) -> argparse.ArgumentParser:
     p = InstallerParser(prog="rbtv", allow_abbrev=False)
     # Every `-h` prints the approved page for its command path (help_pages.py).
     # argparse still parses the grammar; the page says what it accepts.
@@ -211,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
                        choices=(*GUIDANCE_NAMES, BASIS_NONE))
     s_add.add_argument("noun", nargs="*", metavar="NAME")
     tree_flags(s_add, on_verb=True)
-    port_flags(s_add)
+    port_flags(s_add, catalog)
     page(s_add, "add")
 
     s_rm = sub.add_parser("rm", allow_abbrev=False)
@@ -275,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_ag_add.add_argument("--model")
     s_ag_add.add_argument("--effort")
     s_ag_add.add_argument("--on", action="append", default=[], metavar=ON_FORM)
-    port_flags(s_ag_add)
+    port_flags(s_ag_add, catalog)
     page(s_ag_add, "agent add")
     s_ag_remove = agent_sub.add_parser("remove")
     s_ag_remove.add_argument("agent", metavar="AGENT")

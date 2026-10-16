@@ -3,7 +3,9 @@
 // API
 // deliverPending(store, deps) → [{ id, delivered, stopped?, channel?, ts?, error? }]
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
-//   Every post and upload carries the agent's name and avatar from agent.json (deps.home).
+//   Every post and upload carries the agent's name and avatar from agent.json (deps.home), named by the one
+//   sender routine the shared send function exports (sendModule.senderOf: external_name when set, else the
+//   name with a capital first letter).
 //   A user id target (payload.imUser, or a DM agent's board channel) is opened with slack.openIm and
 //   posted to the returned DM: Slack may route a post addressed to a user id to the Slackbot DM.
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
@@ -13,8 +15,10 @@
 //   fails when the two callers diverge), with an operations object built from this client: postMessage
 //   behind 'message.send', uploadFile behind 'message.file', until phase 4 puts the Slack adapter there.
 //   That function posts the text once, sends a text over 12,000 characters as a file, uploads each file,
-//   including a synthesized voice file, with no caption, and reports each file it could not send. A
-//   files-only reply skips the empty post and confirms from the upload ts. A confirmed post is
+//   including a synthesized voice file, with no caption as a message of the text's thread (a root post's
+//   files follow it into the thread it starts), reports each file it could not send and fails as a whole
+//   when nothing was delivered. A files-only reply skips the empty post and confirms from the upload ts. A
+//   retry of a row whose text is confirmed sends the files only, into that text's thread. A confirmed post is
 //   rememberPost'd before the failure of a later upload is raised, so a retry does not post it again;
 //   each confirmed upload is rememberUpload'd, so the row keeps the ts of every message of the reply.
 //   client_msg_id is the stored id, stable across retries. A row is marked delivered only after
@@ -48,17 +52,6 @@ const PERMANENT = new Set([
 function voiceOf(store, home) {
   if (!home) return null;
   return readAgent(home).agent?.voice || null;
-}
-
-// The agent's name and avatar from its agent.json, shown as the sender of every post and upload.
-// The name is stored lowercase; the owner sees it with a capital first letter.
-// An external_name, when set, is shown instead: the agent keeps its internal name.
-function senderOf(home) {
-  if (!home) return undefined;
-  const agent = readAgent(home).agent;
-  if (!agent) return undefined;
-  const name = agent.externalName || agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
-  return { name, avatar: agent.avatar };
 }
 
 function isBoard(conv) {
@@ -170,7 +163,7 @@ async function deliverOne(store, row, deps, now) {
   let { channel } = target;
   const text = typeof row.payload?.text === 'string' ? row.payload.text : '';
   const files = Array.isArray(row.payload?.files) ? row.payload.files.slice() : [];
-  const as = senderOf(deps.home);
+  const as = sendModule.senderOf(deps.home);
   try {
     if (isUserId(channel)) {
       if (typeof deps.slack?.openIm !== 'function') throw new Error('slack.openIm required');
@@ -183,9 +176,9 @@ async function deliverOne(store, row, deps, now) {
     }
     if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');
     let confirmed = row.channel && row.ts ? { channel: row.channel, ts: row.ts } : null;
-    // A retry of a row whose text Slack confirmed sends the files only.
+    // A retry of a row whose text Slack confirmed sends the files only, into that text's thread.
     const sent = await sendModule.send(operationsOf(deps.slack), {
-      group: channel, thread: threadTs || null, text: confirmed ? '' : text, files, as, clientId: row.client_msg_id,
+      group: channel, thread: threadTs || (confirmed ? confirmed.ts : null), text: confirmed ? '' : text, files, as, clientId: row.client_msg_id,
     });
     if (!confirmed && sent.id && (text || !files.length || sent.textAsFile)) {
       const posted = { channel: sent.conversation, ts: sent.id };
@@ -201,7 +194,7 @@ async function deliverOne(store, row, deps, now) {
       if (!confirmed) confirmed = { channel: sent.conversation, ts: file.id };
     }
     const refused = sent.files.find((file) => file.error);
-    if (refused) throw new Error(refused.error);
+    if (refused) throw new Error(refused.detail || refused.error);
     if (!confirmed?.channel || !confirmed?.ts) throw new Error('Slack did not confirm delivery');
     const saved = store.transaction(() => {
       const marked = store.markDelivered(row.id, {

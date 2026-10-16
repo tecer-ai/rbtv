@@ -242,9 +242,9 @@ def parts_of_components(catalog: dict[str, dict], components) -> set[str]:
     return {p["key"] for p in iter_catalog_parts(catalog) if p["component"] in wanted}
 
 
-def _port_of(catalog: dict[str, dict], providers: list[str], operation: str) -> str:
-    """The port a need's flag is named after: the one `type` every provider shares, else the operation's noun."""
-    types = {catalog[p].get("type") for p in providers if catalog[p].get("type")}
+def _port_of(catalog: dict[str, dict], components: list[str], operation: str) -> str:
+    """The port a need's flag is named after: the one `type` every component shares, else the operation's noun."""
+    types = {catalog[p].get("type") for p in components if catalog[p].get("type")}
     return types.pop() if len(types) == 1 else operation.split(".", 1)[0]
 
 
@@ -269,17 +269,17 @@ def resolve_needs(catalog: dict[str, dict], picked, installed, choices: dict | N
             continue
         seen.add(cid)
         for op in (catalog.get(cid) or {}).get("needs") or []:
-            providers = sorted(c for c, rec in catalog.items() if op in (rec.get("provides") or []))
-            if any(p in have for p in providers):
+            components = sorted(c for c, rec in catalog.items() if op in (rec.get("provides") or []))
+            if any(p in have for p in components):
                 continue
-            if not providers:
+            if not components:
                 raise Refuse("needs-unmet", f"{cid} needs {op}, which no component provides; "
                              "install or write a component whose record provides it")
-            if len(providers) == 1:
-                chosen = providers[0]
+            if len(components) == 1:
+                chosen = components[0]
             else:
-                port = _port_of(catalog, providers, op)
-                names = {catalog[p]["component"]: p for p in providers}
+                port = _port_of(catalog, components, op)
+                names = {catalog[p]["component"]: p for p in components}
                 flag = f"--{port}"
                 options = " or ".join(f"{flag} {name}" for name in names)
                 wanted = choices.get(port)

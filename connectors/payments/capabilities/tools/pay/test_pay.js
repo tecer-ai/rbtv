@@ -2,9 +2,11 @@
 'use strict';
 
 // Suite for the `pay` port command: every cell of the result matrix of its specification, run against
-// a synthetic installation (the specification's fixture), a stub `ignite` that keeps the gate's ledger
-// in memory and a stub `asaas` connector command, both injected through main(argv, deps).run; help, the
-// bare root and an unknown verb run the program as a child process. No network, no money.
+// a synthetic installation (the specification's fixture), a stub `ignite` whose rows come from Ignite's own
+// payment gate (core/ignite/.../payments.js on a ledger inside the fixture, printed as `ignite --json
+// payment …` prints them) with a stand-in for the waking service's runner, and a stub `asaas` connector
+// command, both injected through main(argv, deps).run; help, the bare root and an unknown verb run the
+// program as a child process. No network, no money.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,19 +27,37 @@ const PIA = { name: 'Maria Pia Example', key: 'pia@example.com', key_type: 'EMAI
 const ENERGY = { name: 'Companhia Example de Energia', key: LINE_DIGITS, key_type: null, document: '12.345.678/0001-00', bank: 'Banco Example' };
 const PADARIA = { name: 'Padaria Example', key: QR, key_type: 'QR', document: '12.345.678/0001-00', bank: 'Banco Example' };
 
-// The stub gate: Ignite's ledger in memory, the automatic mode with a day limit, the owner's decisions.
-function gateStub() {
-  const rows = [];
-  const state = { mode: 'automatic', dayLimit: 1500, spent: 0, nextId: 3, sendAs: { id: 'tra_fake0003', status: 'DONE', receipt: 'https://www.asaas.com/i/fake0003' } };
-  const money = (cents) => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
-  const publicRow = (row) => ({
-    id: row.id, agent: 'sara', conversation: 'T0BJAM8PACU:C0SARA0001:1792160000.000100', connector: row.connector, method: row.method,
-    recipient: row.recipient, amount_cents: row.amount_cents, fee_cents: row.fee_cents, note: row.note, details: row.details,
-    state: row.state, reason: row.reason, decided_by: row.decided_by, decided_at: row.decided_at, resolved: row.resolved || null,
-    resolve_error: null, connector_id: row.connector_id, connector_status: row.connector_status, receipt_url: row.receipt_url,
-    created_at: '2026-10-16T13:00:00.000Z',
-  });
+const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
+const { example } = require(path.join(REPO, 'core', 'cast', 'capabilities', 'tools', 'cast', 'example-models'));
+const AGENT_MODEL = example('a claude CLI model for the agent record', (m) => m.harness === 'claude' && m.mode === 'cli');
+const { Gate, publicRow } = require(path.join(REPO, 'core', 'ignite', 'capabilities', 'tools', 'ignite', 'payments.js'));
+const CONVERSATION = 'T0BJAM8PACU:C0SARA0001:1792160000.000100';
+
+// The stub ignite: Ignite's own payment gate on a ledger in the fixture's installation, answering what
+// `ignite --json payment request|show|list|cancel` prints (publicRow), plus a stand-in for the waking
+// service's runner, which resolves, claims and sends a rule-approved request at once, as the live service
+// does within a second. The specification's fixture starts at P-0003: two earlier requests of another agent, withdrawn.
+function gateStub(installation) {
+  const gate = new Gate({ workspace: installation });
+  const state = { sendAs: { id: 'tra_fake0003', status: 'DONE', receipt: 'https://www.asaas.com/i/fake0003' } };
+  const settings = (change) => {
+    const current = gate.settings();
+    return gate.saveSettings({ mode: current.mode, limits: current.limits, ...change, revision: current.revision });
+  };
+  settings({ mode: 'case_by_case' });
+  for (let i = 0; i < 2; i++) {
+    const old = gate.request({ agent: 'seed', conversationKey: 'T0BJAM8PACU:C0SEED0001:1792150000.000100', connector: 'asaas', method: 'pix', recipient: { key: 'old@example.com' }, amountCents: 100, note: 'old' });
+    gate.cancel(old.id, 'seed');
+  }
+  settings({ mode: 'automatic', limits: { day: 1500, week: null, month: null } });
   const answer = (code, body, err = '') => ({ code, stdout: body === null ? '' : `${JSON.stringify(body)}\n`, stderr: err });
+  const runner = (row) => {
+    const r = publicRow(row).recipient;
+    gate.resolved(row.id, { name: r.name, document: r.document, bank: r.bank, key: r.key, keyType: r.key_type, amountCents: row.amount_cents, feeCents: row.fee_cents });
+    gate.claim(row.id);
+    gate.sent(row.id, { connectorId: state.sendAs.id, connectorStatus: state.sendAs.status, receiptUrl: state.sendAs.receipt });
+    return gate.get(row.id);
+  };
   function ignite(args, input) {
     assert.equal(args[0], '--json', 'pay calls ignite with --json first');
     assert.equal(args[1], 'payment');
@@ -48,37 +68,36 @@ function gateStub() {
       assert.ok(!args.includes('--provider'), 'pay never says --provider');
       assert.equal(args[args.indexOf('--request') + 1], '-', 'the request arrives on stdin');
       const request = JSON.parse(input);
-      const total = request.amount_cents + (request.fee_cents || 0);
-      const row = {
-        id: `P-${String(state.nextId++).padStart(4, '0')}`, connector: args[i + 1], method: request.method, recipient: request.recipient,
-        amount_cents: request.amount_cents, fee_cents: request.fee_cents || 0, note: request.note, details: request.details || {},
-        decided_by: null, decided_at: null, connector_id: null, connector_status: null, receipt_url: null,
-      };
-      if (state.mode === 'off') Object.assign(row, { state: 'refused', reason: 'payments are off', decided_by: 'rule', decided_at: '2026-10-16T13:00:01.000Z' });
-      else if (state.spent + total > state.dayLimit) Object.assign(row, { state: 'pending', reason: `over the daily limit (${money(state.dayLimit - state.spent)} left of ${money(state.dayLimit)})` });
-      else {
-        state.spent += total;
-        Object.assign(row, { state: 'sent', reason: 'within the limits', decided_by: 'rule', decided_at: '2026-10-16T13:00:01.000Z', resolved: request.recipient,
-          connector_id: state.sendAs.id, connector_status: state.sendAs.status, receipt_url: state.sendAs.receipt });
+      const r = request.recipient || {};
+      let row;
+      try {
+        row = gate.request({
+          agent: 'sara', conversationKey: CONVERSATION, connector: args[i + 1], method: request.method,
+          recipient: { name: r.name, key: r.key, keyType: r.key_type, document: r.document, bank: r.bank },
+          amountCents: request.amount_cents, feeCents: request.fee_cents, note: request.note, details: request.details,
+        });
+      } catch (error) {
+        return answer(1, null, `${error.message}\nNothing changed.\n`);
       }
-      rows.push(row);
+      if (row.state === 'approved') row = runner(row);
       return answer(0, publicRow(row));
     }
     if (verb === 'list') {
       const wanted = args.includes('--state') ? args[args.indexOf('--state') + 1] : null;
-      return answer(0, { payments: rows.filter((r) => !wanted || r.state === wanted).slice().reverse().map(publicRow) });
+      return answer(0, { payments: gate.list({ agent: 'sara', state: wanted, limit: 20 }).map(publicRow) });
     }
-    const row = rows.find((r) => r.id === args[3]);
-    if (!row) return answer(1, null, `unknown payment request: ${args[3]}\nNothing changed.\nignite payment list\n`);
+    const id = args[3];
+    const row = gate.get(id);
+    if (!row || row.agent !== 'sara') return answer(1, null, `unknown payment request: ${id}\nNothing changed.\nignite payment list\n`);
     if (verb === 'show') return answer(0, publicRow(row));
     if (verb === 'cancel') {
-      if (row.state !== 'pending') return answer(1, null, `${row.id} is ${row.state}: only a pending request can be withdrawn\n`);
-      Object.assign(row, { state: 'cancelled', reason: 'withdrawn by the agent' });
-      return answer(0, publicRow(row));
+      try { return answer(0, publicRow(gate.cancel(id, 'sara').row)); } catch (error) { return answer(1, null, `${error.message}\nNothing changed.\n`); }
     }
     throw new Error(`stub ignite: ${args.join(' ')}`);
   }
-  return { rows, state, ignite, publicRow };
+  // This agent's requests of the sequence, oldest first.
+  const rows = () => gate.list({ agent: 'sara', limit: 100 }).reverse().map(publicRow);
+  return { gate, state, ignite, rows, settings, refuse: (id) => gate.refuse(id) };
 }
 
 // The stub connector command, asaas: resolves a draft, cancels at the bank, saves a receipt.
@@ -136,9 +155,9 @@ function fixture({ payments = {} } = {}) {
   fs.writeFileSync(path.join(installation, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify(config));
   const home = path.join(installation, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', harness: 'claude', model: 'opus-5-5', effort: 'medium' }));
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ name: 'sara', harness: 'claude', model: AGENT_MODEL.model, effort: AGENT_MODEL.rungs[0] }));
   fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt\n');
-  const gate = gateStub();
+  const gate = gateStub(installation);
   const connector = connectorStub();
   const commands = { ignite: gate.ignite, asaas: connector.asaas };
   const onPath = new Set(['ignite', 'asaas']);
@@ -150,7 +169,7 @@ function fixture({ payments = {} } = {}) {
       let err = '';
       const code = await main(argv, {
         cwd: fx.cwd,
-        env: { RBTV_AGENT_HOME: home, ...(turn ? { IGNITE_CONVERSATION: 'T0BJAM8PACU:C0SARA0001:1792160000.000100' } : {}), PAY_GATE_WAIT: '0', ...env },
+        env: { RBTV_AGENT_HOME: home, ...(turn ? { IGNITE_CONVERSATION: CONVERSATION } : {}), PAY_GATE_WAIT: '0', ...env },
         stdout: (t) => { out += t; }, stderr: (t) => { err += t; },
         which: (name) => (onPath.has(name) ? `/stub/bin/${name}` : null),
         run: async (command, args, input) => {
@@ -227,7 +246,7 @@ test('S18 missing --from, exit 2, before any call', async () => {
     'pay never picks the account money leaves; name it, even when one is configured',
     'pay pix --from asaas --to pia@example.com --amount 18,00 --note "Aula"   (pay accounts lists the accounts)');
   assert.deepEqual(fx.connector.calls, []);
-  assert.deepEqual(fx.gate.rows, []);
+  assert.deepEqual(fx.gate.rows(), []);
   for (const verb of ['qr', 'bill', 'recharge']) {
     const other = await fx.run([verb, '--note', 'x']);
     assert.equal(other.code, 2);
@@ -239,16 +258,20 @@ test('S11 invalid words, exit 2, three lines', async () => {
   const fx = fixture();
   const cases = [
     [['pix', '--from', 'asaas', '--amount', '18,00', '--note', 'Aula'], 'pay: pix refused: --to KEY is required', null, 'pay pix --from asaas --to KEY --amount 18,00 --note "Aula"'],
-    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', 'abc', '--note', 'x'], 'pay: pix refused: --amount "abc" is not an amount in reais (like 99 or 99,90)', null, null],
-    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '0', '--note', 'x'], 'pay: pix refused: --amount 0 is below R$ 0,01', null, null],
-    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1', '--note', 'x'.repeat(141)], 'pay: pix refused: --note is longer than 140 characters', null, null],
+    // The literal first lines of the specification's S11: the amount, note and QR-key refusals carry no verb;
+    // the qr, bill and recharge ones carry `<verb>: `.
+    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', 'abc', '--note', 'x'], 'pay: --amount "abc" is not an amount in reais (like 99 or 99,90)', null, null],
+    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '0', '--note', 'x'], 'pay: --amount 0 is below R$ 0,01', null, null],
+    [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1', '--note', 'x'.repeat(141)], 'pay: --note is longer than 140 characters', null, null],
     [['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1'], 'pay: pix refused: --note TEXT is required', null, null],
-    [['pix', '--from', 'asaas', '--to', QR, '--amount', '1', '--note', 'x'], `pay: pix refused: --to ${QR.slice(0, 12)}… is a Pix QR code (copy and paste), not a Pix key`, null, 'pay qr --from asaas --code PAYLOAD --note TEXT'],
-    [['qr', '--from', 'asaas', '--code', 'abc', '--note', 'x'], 'pay: qr refused: --code must start with 000201', null, null],
-    [['bill', '--from', 'asaas', '--line', '123456789012345678901234567890', '--note', 'x'], 'pay: bill refused: --line has 30 digits; a digitable line has 47 or 48', null, null],
-    [['recharge', '--from', 'asaas', '--number', '1234', '--amount', '20', '--note', 'x'], 'pay: recharge refused: a mobile number has 11 digits with its area code', null, null],
+    [['pix', '--from', 'asaas', '--to', QR, '--amount', '1', '--note', 'x'], `pay: --to ${QR.slice(0, 12)}… is a Pix QR code (copy and paste), not a Pix key`, null, 'pay qr --from asaas --code PAYLOAD --note TEXT'],
+    [['qr', '--from', 'asaas', '--code', 'abc', '--note', 'x'], 'pay: qr: --code must start with 000201', null, null],
+    [['bill', '--from', 'asaas', '--line', '123456789012345678901234567890', '--note', 'x'], 'pay: bill: --line has 30 digits; a digitable line has 47 or 48', null, null],
+    [['recharge', '--from', 'asaas', '--number', '1234', '--amount', '20', '--note', 'x'], 'pay: recharge: a mobile number has 11 digits with its area code', null, null],
     [['recharge', '--from', 'asaas', '--number', '11912345678', '--amount', '20'], 'pay: recharge refused: --note TEXT is required', null, null],
     [['list', '--state', 'nope'], 'pay: list refused: --state nope is not one of pending, approved, sent, uncertain, refused, cancelled, failed', null, null],
+    [['list', 'extra'], 'pay: list takes no positional word: extra', 'a state is chosen with --state', 'pay list -h'],
+    [['list', 'extra', 'more', '--json'], 'pay: list takes no positional word: extra more', null, null],
     [['show'], 'pay: show refused: ID is required', null, null],
     [['cancel'], 'pay: cancel refused: ID is required', null, null],
     [['receipt'], 'pay: receipt refused: REF is required', null, null],
@@ -262,7 +285,7 @@ test('S11 invalid words, exit 2, three lines', async () => {
     three(r, what, why, fix);
   }
   assert.deepEqual(fx.connector.calls, []);
-  assert.deepEqual(fx.gate.rows, []);
+  assert.deepEqual(fx.gate.rows(), []);
 });
 
 test('S12 ambiguous 11-digit key, exit 2, --type decides', async () => {
@@ -304,7 +327,7 @@ test('S17 first use: ignite off PATH, no payments section, the connector command
   const noCommand = await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1', '--note', 'x']);
   assert.equal(noCommand.code, 1);
   three(noCommand, 'pay: pix refused: the account asaas has no command on PATH', 'the asaas connector is not installed here (rbtv list --installed)', 'rbtv add connectors/asaas');
-  assert.deepEqual(fx.gate.rows, []);
+  assert.deepEqual(fx.gate.rows(), []);
 });
 
 test('S10 unknown account, exit 1, naming the configured accounts', async () => {
@@ -329,9 +352,9 @@ test('S1 pix sent by rule: the rows, the draft resolution, the gate request with
   assert.equal(fx.connector.calls.length, 1);
   assert.deepEqual(fx.connector.calls[0].args, ['--json', 'pay', 'resolve', 'draft']);
   assert.deepEqual(JSON.parse(fx.connector.calls[0].input), { connector: 'asaas', method: 'pix', recipient: { key: 'pia@example.com', key_type: null }, amount_cents: 100, note: 'Teste R$1' });
-  assert.equal(fx.gate.rows.length, 1);
-  assert.deepEqual(fx.gate.rows[0].recipient, PIA);
-  assert.deepEqual([fx.gate.rows[0].method, fx.gate.rows[0].amount_cents, fx.gate.rows[0].fee_cents, fx.gate.rows[0].note, fx.gate.rows[0].details], ['pix', 100, 0, 'Teste R$1', {}]);
+  assert.equal(fx.gate.rows().length, 1);
+  assert.deepEqual(fx.gate.rows()[0].recipient, PIA);
+  assert.deepEqual([fx.gate.rows()[0].method, fx.gate.rows()[0].amount_cents, fx.gate.rows()[0].fee_cents, fx.gate.rows()[0].note, fx.gate.rows()[0].details], ['pix', 100, 0, 'Teste R$1', {}]);
   const json = await fx.run(['--json', 'pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
   assert.equal(json.code, 0);
   const row = JSON.parse(json.out);
@@ -341,31 +364,42 @@ test('S1 pix sent by rule: the rows, the draft resolution, the gate request with
   assert.equal(row.connector_status, 'DONE');
   assert.ok(!('provider' in row) && !('provider_id' in row), 'the row says connector');
   assert.equal(lines(json.out).length, 1);
+  // S1j is the gate's own row, as ignite payment show --json prints it: the ledger's fields and types.
+  assert.deepEqual(Object.keys(row), ['id', 'agent', 'conversation', 'connector', 'method', 'recipient', 'amount_cents', 'fee_cents', 'note', 'details', 'state', 'reason', 'decided_by', 'decided_at', 'resolved', 'resolve_error', 'connector_id', 'connector_status', 'receipt_url', 'created_at']);
+  assert.deepEqual([row.agent, row.conversation, row.state, row.reason, row.decided_by, row.resolve_error, row.receipt_url], ['sara', CONVERSATION, 'sent', 'within the limits', 'rule', null, 'https://www.asaas.com/i/fake0003']);
+  assert.ok(Number.isInteger(row.decided_at) && Number.isInteger(row.created_at) && row.decided_at >= row.created_at, 'times are the ledger\'s milliseconds, not ISO text');
+  assert.deepEqual(row.resolved, { ...PIA, amount_cents: 100, fee_cents: 0 }, 'resolved carries the amount and fee the service checked');
 });
 
-test('S2 pix pending: the rows and the Next line; S2j', async () => {
-  const fx = fixture();
-  fx.gate.state.spent = 100;
+// The specification's sequence: S1 (R$ 1,00, sent by rule) leaves R$ 14,00 of the day's R$ 15,00.
+async function afterS1(fx) {
+  const r = await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
+  assert.equal(r.code, 0, r.err);
+  return fx;
+}
+
+test('S2 pix pending: the rows and the Next line (the gate\'s own reason); S2j', async () => {
+  const fx = await afterS1(fixture());
   const r = await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(lines(r.out), [
     'Recipient   Maria Pia Example · 123.456.789-00 · Nu Pagamentos',
     'Amount      R$ 18,00',
     'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)',
-    'Request     P-0003, sent to the owner for approval',
-    'Next        end this turn waiting_workers: Ignite wakes this conversation with the owner\'s decision; pay show P-0003 shows it meanwhile',
+    'Request     P-0004, sent to the owner for approval',
+    'Next        end this turn waiting_workers: Ignite wakes this conversation with the owner\'s decision; pay show P-0004 shows it meanwhile',
   ]);
   const json = await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula', '--json']);
   const row = JSON.parse(json.out);
   assert.equal(row.state, 'pending');
   assert.equal(row.reason, 'over the daily limit (R$ 14,00 left of R$ 15,00)');
   assert.equal(row.decided_by, null);
+  assert.equal(row.decided_at, null);
   assert.equal(row.connector_id, null);
 });
 
 test('S3 list and S3e, S3j', async () => {
-  const fx = fixture();
-  await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
+  const fx = await afterS1(fixture());
   await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   const r = await fx.run(['list']);
   assert.equal(r.code, 0, r.err);
@@ -383,8 +417,7 @@ test('S3 list and S3e, S3j', async () => {
 });
 
 test('S4 show, S4j, and an unknown id', async () => {
-  const fx = fixture();
-  await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
+  const fx = await afterS1(fixture());
   const r = await fx.run(['show', 'P-0003']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(lines(r.out), [
@@ -405,14 +438,12 @@ test('S4 show, S4j, and an unknown id', async () => {
 });
 
 test('S5 cancel: pending withdrawn, a sent Pix cancelled at the bank; S5r refusals', async () => {
-  const fx = fixture();
-  await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
-  fx.gate.state.spent = 100;
+  const fx = await afterS1(fixture());
   await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   const pending = await fx.run(['cancel', 'P-0004']);
   assert.equal(pending.code, 0, pending.err);
   assert.equal(pending.out, 'Cancelled   P-0004: withdrawn before the owner decided\n');
-  assert.equal(fx.gate.rows[1].state, 'cancelled');
+  assert.deepEqual([fx.gate.rows()[1].state, fx.gate.rows()[1].reason], ['cancelled', 'withdrawn by the agent']);
   const again = await fx.run(['cancel', 'P-0004']);
   assert.equal(again.code, 1);
   three(again, 'pay: P-0004 is cancelled: nothing to cancel', 'a pending request is withdrawn, a sent one is cancelled at the bank while it can be', 'pay show P-0004');
@@ -422,34 +453,33 @@ test('S5 cancel: pending withdrawn, a sent Pix cancelled at the bank; S5r refusa
   assert.deepEqual(fx.connector.calls.at(-1).args, ['--json', 'cancel', 'P-0003']);
   const json = await fx.run(['--json', 'cancel', 'P-0003']);
   assert.deepEqual(JSON.parse(json.out), { id: 'P-0003', connector_id: 'tra_fake0003', status: 'CANCELLED' });
+  // A sent QR payment (the owner raised the limit): the connector cannot cancel it.
   fx.gate.state.sendAs = { id: 'pq_8', status: 'DONE', receipt: null };
-  fx.gate.state.spent = 0;
-  fx.gate.state.dayLimit = 10000;
-  fx.gate.state.nextId = 8;
+  fx.gate.settings({ limits: { day: 10000, week: null, month: null } });
   await fx.run(['qr', '--from', 'asaas', '--code', QR, '--note', 'Pão']);
-  assert.deepEqual([fx.gate.rows.at(-1).id, fx.gate.rows.at(-1).state], ['P-0008', 'sent']);
-  const qr = await fx.run(['cancel', 'P-0008']);
+  const sentQr = fx.gate.rows().at(-1);
+  assert.deepEqual([sentQr.id, sentQr.state, sentQr.connector_id], ['P-0005', 'sent', 'pq_8']);
+  const qr = await fx.run(['cancel', 'P-0005']);
   assert.equal(qr.code, 1);
-  three(qr, 'pay: P-0008 is a qr payment asaas already has', 'asaas cancels Pix key transfers and bills only', "ask the owner to cancel it in the bank's app while it allows it");
+  three(qr, 'pay: P-0005 is a qr payment asaas already has', 'asaas cancels Pix key transfers and bills only', "ask the owner to cancel it in the bank's app while it allows it");
 });
 
-test('S6 show after the owner refused, S7 refused at request (mode off), S7j', async () => {
-  const fx = fixture();
-  fx.gate.state.spent = 100;
+test('S6 show after the owner refused, S7 refused at request (mode off), S7j: the gate\'s own reasons', async () => {
+  const fx = await afterS1(fixture());
   await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
-  Object.assign(fx.gate.rows[0], { state: 'refused', reason: 'refused by the owner', decided_by: 'owner', decided_at: '2026-10-16T13:05:00.000Z' });
-  const show = await fx.run(['show', 'P-0003']);
+  assert.equal(fx.gate.refuse('P-0004').changed, true, 'the owner presses Refuse');
+  const show = await fx.run(['show', 'P-0004']);
   assert.equal(show.code, 0);
   assert.deepEqual(lines(show.out), [
-    'Request     P-0003  pix', 'Recipient   Maria Pia Example · 123.456.789-00 · Nu Pagamentos', 'Key         pia@example.com',
+    'Request     P-0004  pix', 'Recipient   Maria Pia Example · 123.456.789-00 · Nu Pagamentos', 'Key         pia@example.com',
     'Amount      R$ 18,00', 'Note        Aula', 'State       refused: refused by the owner', 'Connector   asaas, id -', 'Receipt     -',
   ]);
-  fx.gate.state.mode = 'off';
+  fx.gate.settings({ mode: 'off' });
   const r = await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   assert.equal(r.code, 1);
   assert.equal(r.err, '');
   assert.deepEqual(lines(r.out), [
-    'Recipient   Maria Pia Example · 123.456.789-00 · Nu Pagamentos', 'Amount      R$ 18,00', 'State       refused: payments are off', 'Request     P-0004',
+    'Recipient   Maria Pia Example · 123.456.789-00 · Nu Pagamentos', 'Amount      R$ 18,00', 'State       refused: payments are off', 'Request     P-0005',
   ]);
   const json = await fx.run(['--json', 'pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   assert.equal(json.code, 1);
@@ -457,8 +487,7 @@ test('S6 show after the owner refused, S7 refused at request (mode off), S7j', a
 });
 
 test('S8 receipt saved, S8j, S8r without a receipt and over an existing file', async () => {
-  const fx = fixture();
-  await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1,00', '--note', 'Teste R$1']);
+  const fx = await afterS1(fixture());
   fx.cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pay-cwd-'));
   const expected = path.join(fx.cwd, 'P-0003.pdf');
   const r = await fx.run(['receipt', 'P-0003']);
@@ -472,7 +501,6 @@ test('S8 receipt saved, S8j, S8r without a receipt and over an existing file', a
   const json = await fx.run(['--json', 'receipt', 'P-0003', '--out', out]);
   assert.equal(json.code, 0, json.err);
   assert.deepEqual(JSON.parse(json.out), { path: out, bytes: 41 * 1024, receipt_url: 'https://www.asaas.com/i/fake0003' });
-  fx.gate.state.spent = 100;
   await fx.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '18,00', '--note', 'Aula']);
   await fx.run(['cancel', 'P-0004']);
   const none = await fx.run(['receipt', 'P-0004']);
@@ -504,7 +532,26 @@ test('S9a accounts, S9j, S9e with no payments section; nothing contacts the bank
   const two = await other.run(['--json', 'accounts']);
   assert.deepEqual(JSON.parse(two.out).accounts.map((a) => [a.name, a.command, a.adapter]), [['asaas', true, true], ['nubank', false, false]]);
   const legacy = fixture({ payments: { providers: ['asaas'] } });
-  assert.deepEqual(JSON.parse((await legacy.run(['--json', 'accounts'])).out).accounts.map((a) => a.name), ['asaas'], 'the older key still names the accounts');
+  assert.deepEqual(JSON.parse((await legacy.run(['--json', 'accounts'])).out).accounts.map((a) => a.name), ['asaas'], 'the older key still names the accounts, as Ignite reads it');
+});
+
+test('pay accounts reads the payments configuration through Ignite\'s own validator: both spellings, or a malformed list, refuse with Ignite\'s message', async () => {
+  const both = fixture({ payments: { connectors: ['asaas'], providers: ['asaas'] } });
+  const r = await both.run(['accounts']);
+  assert.equal(r.code, 1);
+  assert.equal(r.out, '');
+  three(r, 'pay: Ignite refuses its config: payments.connectors replaces payments.providers: give one',
+    `pay reads the accounts through Ignite's own config reader (${path.join(both.installation, '.rbtv', 'config', 'ignite', 'config.json')}), so both refuse the same file`,
+    'the owner fixes the file; until then Ignite\'s gate refuses too');
+  const malformed = fixture({ payments: { connectors: 'asaas' } });
+  const m = await malformed.run(['--json', 'accounts']);
+  assert.equal(m.code, 1);
+  assert.equal(m.out, '');
+  assert.equal(lines(m.err)[0], 'pay: Ignite refuses its config: payments.connectors must be a list of connector names, such as ["asaas"]');
+  const paying = await malformed.run(['pix', '--from', 'asaas', '--to', 'pia@example.com', '--amount', '1', '--note', 'x']);
+  assert.equal(paying.code, 1);
+  assert.equal(lines(paying.err)[0], 'pay: Ignite refuses its config: payments.connectors must be a list of connector names, such as ["asaas"]');
+  assert.deepEqual(malformed.connector.calls, [], 'nothing was asked of the connector');
 });
 
 test('S10 connector failures pass the connector\'s three lines through with pay: in front', async () => {
@@ -513,12 +560,11 @@ test('S10 connector failures pass the connector\'s three lines through with pay:
   assert.equal(r.code, 1);
   assert.equal(r.out, '');
   three(r, 'pay: asaas: Asaas has no owner for this key', 'the key is not registered', 'check the key with its owner');
-  assert.deepEqual(fx.gate.rows, [], 'nothing recorded');
+  assert.deepEqual(fx.gate.rows(), [], 'nothing recorded');
 });
 
 test('S13 bill: the simulation line, fee and details reach the gate', async () => {
-  const fx = fixture();
-  fx.gate.state.spent = 100;
+  const fx = await afterS1(fixture());
   const r = await fx.run(['bill', '--from', 'asaas', '--line', LINE, '--note', 'Luz']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(lines(r.out), [
@@ -526,26 +572,26 @@ test('S13 bill: the simulation line, fee and details reach the gate', async () =
     'Recipient   Companhia Example de Energia · 12.345.678/0001-00 · Banco Example',
     'Amount      R$ 18,00',
     'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)',
-    'Request     P-0003, sent to the owner for approval',
-    'Next        end this turn waiting_workers: Ignite wakes this conversation with the owner\'s decision; pay show P-0003 shows it meanwhile',
+    'Request     P-0004, sent to the owner for approval',
+    'Next        end this turn waiting_workers: Ignite wakes this conversation with the owner\'s decision; pay show P-0004 shows it meanwhile',
   ]);
-  const draft = JSON.parse(fx.connector.calls[0].input);
+  const draft = JSON.parse(fx.connector.calls[1].input);
   assert.deepEqual(draft, { connector: 'asaas', method: 'bill', recipient: { key: LINE_DIGITS, key_type: null }, amount_cents: null, note: 'Luz' });
-  assert.deepEqual([fx.gate.rows[0].method, fx.gate.rows[0].amount_cents, fx.gate.rows[0].fee_cents, fx.gate.rows[0].details], ['bill', 1800, 0, { due_date: '2026-10-20', company: 'Companhia Example de Energia' }]);
+  const bill = fx.gate.rows()[1];
+  assert.deepEqual([bill.method, bill.amount_cents, bill.fee_cents, bill.details], ['bill', 1800, 0, { due_date: '2026-10-20', company: 'Companhia Example de Energia' }]);
   const json = await fx.run(['--json', 'bill', '--from', 'asaas', '--line', LINE, '--note', 'Luz']);
   assert.equal(lines(json.out).length, 1, 'no Simulated line with --json');
 });
 
 test('S14 qr: a fixed amount; the amount refusals', async () => {
-  const fx = fixture();
-  fx.gate.state.spent = 100;
+  const fx = await afterS1(fixture());
   const r = await fx.run(['qr', '--from', 'asaas', '--code', QR, '--note', 'Pão']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(lines(r.out).slice(0, 4), [
     'Recipient   Padaria Example · 12.345.678/0001-00 · Banco Example', 'Amount      R$ 35,90',
-    'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)', 'Request     P-0003, sent to the owner for approval',
+    'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)', 'Request     P-0004, sent to the owner for approval',
   ]);
-  assert.equal(fx.gate.rows[0].amount_cents, 3590);
+  assert.equal(fx.gate.rows()[1].amount_cents, 3590);
   const open = `000201${'0'.repeat(50)}OPEN6304ABCD`;
   const noAmount = await fx.run(['qr', '--from', 'asaas', '--code', open, '--note', 'Pão']);
   assert.equal(noAmount.code, 1);
@@ -559,13 +605,13 @@ test('S14 qr: a fixed amount; the amount refusals', async () => {
 });
 
 test('S15 recharge: the phone as 11 digits, the note recorded', async () => {
-  const fx = fixture();
-  fx.gate.state.spent = 100;
+  const fx = await afterS1(fixture());
   const r = await fx.run(['recharge', '--from', 'asaas', '--number', '+55 11 91234-5678', '--amount', '20,00', '--note', 'Celular']);
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(lines(r.out).slice(0, 4), ['Recipient   11912345678', 'Amount      R$ 20,00', 'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)', 'Request     P-0003, sent to the owner for approval']);
-  assert.deepEqual(JSON.parse(fx.connector.calls[0].input).recipient, { key: '11912345678', key_type: 'PHONE' });
-  assert.deepEqual([fx.gate.rows[0].method, fx.gate.rows[0].note, fx.gate.rows[0].recipient.key], ['recharge', 'Celular', '11912345678']);
+  assert.deepEqual(lines(r.out).slice(0, 4), ['Recipient   11912345678', 'Amount      R$ 20,00', 'State       pending: over the daily limit (R$ 14,00 left of R$ 15,00)', 'Request     P-0004, sent to the owner for approval']);
+  assert.deepEqual(JSON.parse(fx.connector.calls[1].input).recipient, { key: '11912345678', key_type: 'PHONE' });
+  const top = fx.gate.rows()[1];
+  assert.deepEqual([top.method, top.note, top.recipient.key], ['recharge', 'Celular', '11912345678']);
 });
 
 test('--json before or after the verb; a refusal with --json prints nothing on stdout', async () => {

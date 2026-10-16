@@ -74,26 +74,44 @@ test('message.send to a contact opens the direct conversation and posts markdown
   answers['conversations.open'] = (p) => ({ ok: true, channel: { id: 'D0OWNERDM1' } });
   answers['chat.postMessage'] = (p) => ({ ok: true, channel: p.channel, ts: '1792160000.000100' });
   const result = await adapter.operations['message.send']({ contact: 'U0OWNER001', thread: null, text: 'Receipt saved', as: { name: 'Sara', avatar: ':owl:' }, clientId: 'message:abc' });
-  assert.deepEqual(result, { conversation: 'D0OWNERDM1', id: '1792160000.000100' });
+  assert.deepEqual(result, { conversation: 'D0OWNERDM1', id: '1792160000.000100', thread: null });
   assert.deepEqual(calls.map((c) => c.method), ['conversations.open', 'chat.postMessage']);
   assert.equal(calls[0].params.users, 'U0OWNER001');
   assert.deepEqual(calls[1].params, { channel: 'D0OWNERDM1', markdown_text: 'Receipt saved', client_msg_id: 'message:abc', username: 'Sara', icon_emoji: ':owl:' });
   for (const call of calls) assert.equal(call.auth, `Bearer ${SENTINEL}`);
   calls.length = 0;
+  // A thread is posted to at its root: conversations.replies on the given id says which message it is.
+  answers['conversations.replies'] = (p) => ({ ok: true, messages: [{ ts: p.ts, thread_ts: p.ts === '1792160030.000200' ? '1792160000.000100' : p.ts, text: 'x' }] });
+  answers['chat.postMessage'] = (p) => ({ ok: true, channel: p.channel, ts: '1792160060.000300' });
   const reply = await adapter.operations['message.send']({ group: 'D0OWNERDM1', thread: '1792160000.000100', text: 'Done.', clientId: 'message:def' });
-  assert.deepEqual(reply, { conversation: 'D0OWNERDM1', id: '1792160000.000100' });
-  assert.deepEqual(calls.map((c) => c.method), ['chat.postMessage']);
-  assert.equal(calls[0].params.thread_ts, '1792160000.000100');
+  assert.deepEqual(reply, { conversation: 'D0OWNERDM1', id: '1792160060.000300', thread: '1792160000.000100' });
+  assert.deepEqual(calls.map((c) => c.method), ['conversations.replies', 'chat.postMessage']);
+  assert.deepEqual(calls[0].params, { channel: 'D0OWNERDM1', ts: '1792160000.000100', limit: '1' });
+  assert.equal(calls[1].params.thread_ts, '1792160000.000100');
+  calls.length = 0;
+  // A reply's own id names its thread: the post goes to the root, which the result carries as thread.
+  const viaReply = await adapter.operations['message.send']({ group: 'D0OWNERDM1', thread: '1792160030.000200', text: 'Done.', clientId: 'message:ghi' });
+  assert.deepEqual(viaReply, { conversation: 'D0OWNERDM1', id: '1792160060.000300', thread: '1792160000.000100' });
+  assert.deepEqual(calls.map((c) => c.method), ['conversations.replies', 'chat.postMessage']);
+  assert.equal(calls[0].params.ts, '1792160030.000200');
+  assert.equal(calls[1].params.thread_ts, '1792160000.000100', 'posted to the root, not to the reply');
+  // Slack can return the parent first even when ts names a reply. Use that message's id.
+  answers['conversations.replies'] = () => ({ ok: true, messages: [{ ts: '1792160000.000100', text: 'root' }] });
+  calls.length = 0;
+  const parentFirst = await adapter.operations['message.send']({ group: 'D0OWNERDM1', thread: '1792160030.000200', text: 'Again.' });
+  assert.equal(parentFirst.thread, '1792160000.000100');
+  assert.equal(calls[1].params.thread_ts, '1792160000.000100');
   await assert.rejects(adapter.operations['message.send']({ group: 'C1', text: '   ' }), /no_text/);
 });
 
-test('a Slack error becomes "slack answered <code>", with code thread for a thread it does not find; the process environment wins over .env', async () => {
+test('a Slack error becomes "slack answered <code>" with reason the bare code, and code thread for a thread it does not find; the process environment wins over .env', async () => {
   calls.length = 0;
-  answers['chat.postMessage'] = (p) => ({ ok: false, error: 'thread_not_found' });
+  answers['conversations.replies'] = (p) => ({ ok: false, error: 'thread_not_found' });
   await assert.rejects(adapter.operations['message.send']({ group: 'D0OWNERDM1', thread: '1792000000.000001', text: 'x' }),
-    (error) => error.code === 'thread' && error.message === 'slack answered thread_not_found for 1792000000.000001 in D0OWNERDM1');
+    (error) => error.code === 'thread' && error.reason === 'thread_not_found' && error.message === 'slack answered thread_not_found for 1792000000.000001 in D0OWNERDM1');
+  assert.deepEqual(calls.map((c) => c.method), ['conversations.replies'], 'nothing is posted into a thread Slack does not find');
   answers['chat.postMessage'] = (p) => ({ ok: false, error: 'channel_not_found' });
-  await assert.rejects(adapter.operations['message.send']({ group: 'C9', text: 'x' }), (error) => !error.code && error.message === 'slack answered channel_not_found');
+  await assert.rejects(adapter.operations['message.send']({ group: 'C9', text: 'x' }), (error) => !error.code && error.reason === 'channel_not_found' && error.message === 'slack answered channel_not_found');
   process.env.SLACK_BOT_TOKEN = 'xoxb-from-env';
   answers['chat.postMessage'] = (p) => ({ ok: true, channel: p.channel, ts: '1.1' });
   calls.length = 0;
@@ -108,14 +126,23 @@ test('message.file: the upload url, the bytes, the completion in the thread, as 
   fs.writeFileSync(file, '%PDF-1.4 fake');
   answers['files.getUploadURLExternal'] = () => ({ ok: true, upload_url: `${process.env.SLACK_API_URL}/upload`, file_id: 'F1' });
   answers['files.completeUploadExternal'] = () => ({ ok: true, files: [{ id: 'F1', name: 'P-0003.pdf', shares: { public: { D0OWNERDM1: [{ ts: '1792160000.000101' }] } } }] });
+  answers['conversations.replies'] = (p) => ({ ok: true, messages: [{ ts: p.ts, thread_ts: p.ts, text: 'root' }] });
   const result = await adapter.operations['message.file']({ send: { conversation: 'D0OWNERDM1', thread: '1792160000.000100', file, as: { name: 'Sara' } } });
-  assert.deepEqual(result, { id: '1792160000.000101', conversation: 'D0OWNERDM1' });
-  assert.deepEqual(calls.map((c) => c.method), ['files.getUploadURLExternal', 'upload', 'files.completeUploadExternal']);
-  assert.deepEqual(calls[0].params, { filename: 'P-0003.pdf', length: '13' });
-  assert.equal(calls[2].params.channel_id, 'D0OWNERDM1');
-  assert.equal(calls[2].params.thread_ts, '1792160000.000100');
-  assert.equal(calls[2].params.username, 'Sara');
-  assert.equal(JSON.parse(calls[2].params.files)[0].title, 'P-0003.pdf');
+  assert.deepEqual(result, { id: '1792160000.000101', conversation: 'D0OWNERDM1', thread: '1792160000.000100' });
+  assert.deepEqual(calls.map((c) => c.method), ['conversations.replies', 'files.getUploadURLExternal', 'upload', 'files.completeUploadExternal']);
+  assert.deepEqual(calls[1].params, { filename: 'P-0003.pdf', length: '13' });
+  assert.equal(calls[3].params.channel_id, 'D0OWNERDM1');
+  assert.equal(calls[3].params.thread_ts, '1792160000.000100');
+  assert.equal(calls[3].params.username, 'Sara');
+  assert.equal(JSON.parse(calls[3].params.files)[0].title, 'P-0003.pdf');
+  calls.length = 0;
+  // A file into a thread named by a reply's id goes to the root too.
+  answers['conversations.replies'] = (p) => ({ ok: true, messages: [{ ts: p.ts, thread_ts: '1792160000.000100', text: 'x' }] });
+  const replyFile = await adapter.operations['message.file']({ send: { conversation: 'D0OWNERDM1', thread: '1792160030.000200', file } });
+  assert.equal(replyFile.thread, '1792160000.000100');
+  assert.deepEqual(calls.map((c) => c.method), ['conversations.replies', 'files.getUploadURLExternal', 'upload', 'files.completeUploadExternal']);
+  assert.equal(calls[0].params.ts, '1792160030.000200');
+  assert.equal(calls[3].params.thread_ts, '1792160000.000100', 'the file is a message of the root\'s thread');
   calls.length = 0;
   answers['conversations.open'] = () => ({ ok: true, channel: { id: 'D0OWNERDM1' } });
   const direct = await adapter.operations['message.file']({ send: { contact: 'U0OWNER001', file } });
@@ -143,7 +170,9 @@ test('message.history: replies oldest first in the inbound event shape, paginate
     thread: '1792160000.000100', text: 'Thanks.', files: [{ id: 'F2', name: 'a.png', mimetype: 'image/png' }], isSelf: false, raw: messages[1],
   });
   assert.deepEqual([events[0].thread, events[0].isSelf, events[2].isSelf], [null, true, true]);
-  assert.deepEqual(calls.filter((c) => c.method === 'conversations.replies').map((c) => c.params.cursor || null), [null, 'c2']);
+  // The first call reads the given id alone (limit 1) to find the root; then the thread is read in pages.
+  assert.deepEqual(calls.filter((c) => c.method === 'conversations.replies').map((c) => c.params.cursor || null), [null, null, 'c2']);
+  assert.equal(calls.find((c) => c.method === 'conversations.replies').params.limit, '1');
   calls.length = 0;
   const viaReply = await adapter.operations['message.history']({ conversation: 'D0OWNERDM1', thread: '1792160030.000200' });
   assert.equal(viaReply.events.length, 3, 'a reply\'s reference reads the whole thread');
