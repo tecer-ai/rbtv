@@ -1,0 +1,5 @@
+{
+  "name": "adapter-check",
+  "description": "Checks a connector's adapters from its record: each port in type and serves has its adapter file, exporting the port's shape, with the operations the record provides and no other port's; reports each defect.",
+  "entry": "adapter-check.js"
+}

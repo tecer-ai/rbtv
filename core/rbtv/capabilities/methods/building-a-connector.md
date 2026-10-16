@@ -91,13 +91,13 @@ Run these from the repository root with the connector's name in place of `<name>
 ```sh
 rbtv show connectors/<name>
 <name> -h
-node -e "const n=process.argv[1],r=require('./connectors/'+n+'/'+n+'.json'),lib='./connectors/'+n+'/capabilities/tools/'+n+'/lib/',bad=[],ops=new Set();for(const p of [r.type,...(r.serves||[])]){const file=lib+(p==='payments'?'withdrawal-validation.js':p+'.js');let a;try{a=require(file)}catch(e){bad.push(p+': no adapter at '+file);continue}if(p==='payments'){for(const k of ['path','header','tokenEnv','read'])k in a||bad.push(p+': no '+k);continue}for(const [op,fn] of Object.entries(a.operations||{}))typeof fn==='function'?ops.add(op):bad.push(p+': operations.'+op+' is not a function')}for(const op of r.provides||[])op.startsWith('payment.')||ops.has(op)||bad.push('no operations for '+op);if(bad.length){console.error(bad.join('\n'));process.exit(1)}console.log('adapter shape ok')" <name>
+adapter-check <name>
 <name> <one read verb>
 ```
 
 1. `rbtv show` runs the installer's scan: a record without `type`, or a need no component provides, fails with the installer's refusal; a valid record prints a `Type:` line. When `rbtv` is not on PATH, run `python3 core/rbtv/capabilities/tools/rbtv/install.py show connectors/<name>` (`python` on Windows).
 2. The command answers help. Before the connector is installed, run the record's `entry` by its path with its interpreter instead of the shortcut.
-3. For each port in `type` and `serves`, the adapter file of the table above loads and exports its port's shape, and every operation in `provides` (other than `payment.*`, which the withdrawal validation covers) has a function in an adapter's `operations`; each defect is printed, one per line.
+3. [adapter-check](../tools/adapter-check/adapter-check.md) loads, for each port in `type` and `serves`, the adapter file of the table above and checks its exports: a payments adapter through Ignite's own loader, so what passes here is what Ignite accepts; any other port's `operations`, one function per operation the record `provides` for that port, none of another port and none the record does not provide. Each defect is printed, one per line, and the run exits 1. Before the tool is installed, run `node core/rbtv/capabilities/tools/adapter-check/adapter-check.js <name>`.
 4. One real read on the account, through the command.
 
 The check confirms the shape, not the behaviour: the tests of the command and of the adapter, the blind pass and, for a connector that writes, the real exchange are the evidence that it works.
