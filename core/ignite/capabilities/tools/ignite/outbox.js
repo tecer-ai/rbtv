@@ -9,13 +9,15 @@
 //   Pending rows are reloaded before delivery so later replies follow the newly bound thread.
 //   The reply text is posted once (postMessage). Each file, including a synthesized voice file,
 //   is uploaded with no caption. A files-only reply skips the empty post and confirms from the
-//   upload ts. A confirmed post is rememberPost'd before uploads, so a retry does not post it again.
+//   upload ts. A confirmed post is rememberPost'd before uploads, so a retry does not post it again;
+//   each confirmed upload is rememberUpload'd, so the row keeps the ts of every message of the reply.
 //   client_msg_id is the stored id, stable across retries. A row is marked delivered only after
 //   Slack confirms channel and ts. Harness stdout is never read here.
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
-//   A row delivered into its conversation's thread becomes a message of that conversation's live
-//   status (live-status.js delivered), which follows the thread's latest message. A row with
+//   A row delivered into its conversation's thread becomes messages of that conversation's live
+//   status (live-status.js delivered), one per message Slack confirmed for it, and the status
+//   follows the thread's latest message. A row with
 //   payload.mark { channel, ts, runId?, task? } is a reply of the turn that answered that owner
 //   message: once every row of that turn (its runId; channel and ts for a mark without one) is
 //   delivered, the last one keeps the task, which replaces the turn's agent state; when one gives up,
@@ -98,7 +100,11 @@ function showDelivered(store, row, saved, target, deps) {
   } catch {
     return; // A status never breaks a delivery that Slack already confirmed.
   }
-  const reply = { conversationKey: saved.conversationKey || row.conversation_key, channel: saved.channel, ts: saved.ts };
+  const reply = {
+    conversationKey: saved.conversationKey || row.conversation_key,
+    channel: saved.channel,
+    messages: [...new Set([saved.ts, ...saved.posted])],
+  };
   live.delivered(store, reply, answer, deps.log);
 }
 
@@ -156,7 +162,9 @@ async function deliverOne(store, row, deps, now) {
     }
     for (const file of files) {
       const uploaded = await deps.slack.uploadFile({ channel, threadTs, file, as });
-      if (!confirmed && uploaded?.ts) confirmed = { channel, ts: uploaded.ts };
+      if (!uploaded?.ts) continue;
+      store.rememberUpload(row.id, uploaded.ts);
+      if (!confirmed) confirmed = { channel, ts: uploaded.ts };
     }
     if (!confirmed?.channel || !confirmed?.ts) throw new Error('Slack did not confirm delivery');
     const saved = store.transaction(() => {

@@ -308,8 +308,8 @@ A turn that answers no owner message (a scheduled wake) has nowhere to show it: 
 The task state of this turn's own message comes from RESULT_FILE: disposition completed, waiting_owner
 or stopped, and "caveats": true with completed. --task with --message sets the task state of an
 earlier owner message of this conversation, by its Slack timestamp (the history gives it on each
-owner message), when its state changed since its turn finished. It lands on the message that shows
-that task, usually the turn's final reply, whose own timestamp works as well:
+owner message), when its state changed since its turn finished. It lands on every message that shows
+that task, usually the turn's final reply; the timestamp of any message of that reply works as well:
   done      the work is done
   caveats   done, with problems worth a follow-up
   question  waits for the owner's answer

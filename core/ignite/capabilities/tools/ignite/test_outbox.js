@@ -1,8 +1,12 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { Store } = require('./store.js');
 const { deliverPending } = require('./outbox.js');
+const live = require('./live-status.js');
 
 const failures = [];
 const pending = [];
@@ -117,11 +121,23 @@ test('a conversation still missing after reload stops delivery', async (store) =
   assert.equal(store.db.prepare('SELECT state FROM outbox WHERE id=?').get('reply').state, 'failed');
 });
 
+// Slack confirms each post and upload with the next ts, 9.1, 9.2, …; calls keeps each as post or upload
+// with its text or file.
 function markSlack() {
   const slack = {
     reactions: [],
     posted: 0,
-    async postMessage(args) { slack.posted += 1; return { channel: args.channel, ts: `9.${slack.posted}` }; },
+    calls: [],
+    async postMessage(args) {
+      slack.posted += 1;
+      slack.calls.push(`post ${args.text}`);
+      return { channel: args.channel, ts: `9.${slack.posted}` };
+    },
+    async uploadFile(args) {
+      slack.posted += 1;
+      slack.calls.push(`upload ${args.file}`);
+      return { ts: `9.${slack.posted}` };
+    },
     async addReaction(channel, ts, name) { slack.reactions.push(`add ${name}`); },
     async removeReaction(channel, ts, name) { slack.reactions.push(`remove ${name}`); },
   };
@@ -129,14 +145,14 @@ function markSlack() {
 }
 
 // Reply rows of run R1 answering owner message C1/1.1, the thread's latest message, whose turn is over:
-// it still shows its agent state.
-function markedRows(store, ids, task = 'done') {
+// it still shows its agent state. payload adds to each row's payload (files, audio, text).
+function markedRows(store, ids, task = 'done', payload = {}) {
   const key = 'T1:C1:1.1';
   store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.setLiveStatus({ conversationKey: key, channel: 'C1', ts: '1.1', system: 'running', agent: 'working', runId: 'R1' });
   for (const id of ids) {
     store.enqueueOutbox({ id, conversationKey: key,
-      payload: { text: id, mark: { channel: 'C1', ts: '1.1', runId: 'R1', ...(task && { task }) } } });
+      payload: { text: id, mark: { channel: 'C1', ts: '1.1', runId: 'R1', ...(task && { task }) }, ...payload } });
   }
 }
 
@@ -203,14 +219,89 @@ test('a thread that shows no live status gets none from its rows, hold notices i
   assert.deepEqual(store.liveStatuses(), []);
 });
 
-test('a post into a thread that shows a live status takes it, the conversation\'s task included', async (store) => {
+test('a post into a thread that shows a live status takes it, the conversation\'s task included, and keeps that task once the status leaves it, after a reopened store too', async () => {
+  const database = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-outbox-')), 'state.sqlite');
+  let db = new Store(database);
   const key = 'T1:C1:1.1';
-  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
-  store.setLiveStatus({ conversationKey: key, channel: 'C1', ts: '1.1', system: 'running', task: 'done', kept: 'done', keptFor: '1.1' });
-  store.enqueueOutbox({ id: 'post:p1', conversationKey: key, payload: { text: 'notice' } });
-  await deliverPending(store, { slack: markSlack() });
-  assert.deepEqual(shown(store), { 1.1: { system: null, agent: null, task: 'done' }, 9.1: { system: 'running', agent: null, task: 'done' } });
-  assert.equal(store.getLiveStatus('C1', '9.1').kept, null);
+  db.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  db.setLiveStatus({ conversationKey: key, channel: 'C1', ts: '1.1', system: 'running', task: 'done', kept: 'done', keptFor: '1.1' });
+  db.enqueueOutbox({ id: 'post:p1', conversationKey: key, payload: { text: 'notice' } });
+  await deliverPending(db, { slack: markSlack() });
+  assert.deepEqual(shown(db), { 1.1: { system: null, agent: null, task: 'done' }, 9.1: { system: 'running', agent: null, task: 'done' } });
+  const kept = (ts) => { const row = db.getLiveStatus('C1', ts); return [row.kept, row.kept_for]; };
+  assert.deepEqual(kept('9.1'), ['done', '1.1']);
+  db.close();
+  db = new Store(database);
+  assert.deepEqual(kept('9.1'), ['done', '1.1']);
+  // The owner's next message: the post keeps its done and loses only its system state.
+  live.received(db, { conversationKey: key, channel: 'C1', ts: '10.1' });
+  assert.deepEqual(shown(db), {
+    1.1: { system: null, agent: null, task: 'done' },
+    9.1: { system: null, agent: null, task: 'done' },
+    '10.1': { system: 'queued', agent: null, task: null },
+  });
+  assert.deepEqual(kept('10.1'), [null, null]);
+  db.close();
+});
+
+// Every message Slack confirmed for a row, and its text receipt.
+const sent = (store, id) => {
+  const row = store._outbox(store.db.prepare('SELECT * FROM outbox WHERE id=?').get(id));
+  return { state: row.state, ts: row.ts, posted: row.posted };
+};
+const replyOf = (store, ts) => { const row = store.getLiveStatus('C1', ts); return [row.kept, row.kept_for]; };
+
+test('a reply with text and a file: both messages are known, and the live status and task go to the file, the newer', async (store) => {
+  markedRows(store, ['r1'], 'done', { files: ['/out/report.pdf'] });
+  const slack = markSlack();
+  await deliverPending(store, { slack });
+  assert.deepEqual(slack.calls, ['post r1', 'upload /out/report.pdf']);
+  assert.deepEqual(sent(store, 'r1'), { state: 'delivered', ts: '9.1', posted: ['9.1', '9.2'] });
+  assert.deepEqual(shown(store), { 1.1: none, 9.1: none, 9.2: { system: 'running', agent: null, task: 'done' } });
+  assert.deepEqual([replyOf(store, '9.1'), replyOf(store, '9.2')], [[null, '1.1'], ['done', '1.1']]);
+});
+
+test('a reply of several files and no text: each upload is known, and the live status and task go to the last', async (store) => {
+  markedRows(store, ['r1'], 'done', { text: '', files: ['/out/a.png', '/out/b.png', '/out/c.png'] });
+  const slack = markSlack();
+  await deliverPending(store, { slack });
+  assert.deepEqual(slack.calls, ['upload /out/a.png', 'upload /out/b.png', 'upload /out/c.png']);
+  assert.deepEqual(sent(store, 'r1'), { state: 'delivered', ts: '9.1', posted: ['9.1', '9.2', '9.3'] });
+  assert.deepEqual(shown(store), { 1.1: none, 9.1: none, 9.2: none, 9.3: { system: 'running', agent: null, task: 'done' } });
+});
+
+test('an audio reply: its text and its voice file are known, and the live status and task go to the voice file', async (store) => {
+  markedRows(store, ['r1'], 'done', { audio: true });
+  const slack = markSlack();
+  const audio = { async speak(text) { return `/voice/${text}.mp3`; } };
+  await deliverPending(store, { slack, audio });
+  assert.deepEqual(slack.calls, ['post r1', 'upload /voice/r1.mp3']);
+  assert.deepEqual(sent(store, 'r1'), { state: 'delivered', ts: '9.1', posted: ['9.1', '9.2'] });
+  assert.deepEqual(shown(store), { 1.1: none, 9.1: none, 9.2: { system: 'running', agent: null, task: 'done' } });
+});
+
+test('the messages of a reply survive a failed upload and a reopened store: the text is not posted again, and the status goes to the newest', async () => {
+  const database = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-outbox-')), 'state.sqlite');
+  let db = new Store(database);
+  markedRows(db, ['r1'], 'done', { files: ['/out/a.png', '/out/b.png'] });
+  const slack = markSlack();
+  const upload = slack.uploadFile;
+  slack.uploadFile = async (args) => {
+    if (args.file === '/out/b.png' && slack.calls.length < 3) { slack.calls.push(`upload ${args.file}`); throw new Error('slack down'); }
+    return upload(args);
+  };
+  const [first] = await deliverPending(db, { slack, now: () => 0 });
+  assert.equal(first.delivered, false);
+  assert.deepEqual(sent(db, 'r1'), { state: 'pending', ts: '9.1', posted: ['9.1', '9.2'] });
+  assert.deepEqual(shown(db), { 1.1: { system: 'running', agent: 'working', task: null } });
+  db.close();
+  db = new Store(database);
+  // The retry posts no text; it uploads every file of the reply again.
+  await deliverPending(db, { slack, now: () => 60_000 });
+  assert.deepEqual(slack.calls, ['post r1', 'upload /out/a.png', 'upload /out/b.png', 'upload /out/a.png', 'upload /out/b.png']);
+  assert.deepEqual(sent(db, 'r1'), { state: 'delivered', ts: '9.1', posted: ['9.1', '9.2', '9.3', '9.4'] });
+  assert.deepEqual(shown(db), { 1.1: none, 9.1: none, 9.2: none, 9.3: none, 9.4: { system: 'running', agent: null, task: 'done' } });
+  db.close();
 });
 
 test('a live status write error never fails a delivery', async (store) => {

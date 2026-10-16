@@ -39,8 +39,13 @@
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
 // pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
 //   Delivery binds a threadless conversation to its root; confirmed post: rows join the target's history once.
+//   markDelivered returns { channel, ts, clientMsgId, conversationKey?, posted }.
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
-// rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
+// rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. The
+//   receipt is the row's channel and ts; its ts also joins posted.
+// rememberUpload(id, ts) — a file of a pending row Slack confirmed: its ts joins posted.
+//   posted, a row's JSON list of the Slack ts of every message confirmed for it (its text, each file, in every
+//   attempt), apart from the receipt that keeps a retry from posting the text again.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
 // checkTool(value) — the stored form of a timer's check tool, or null for none; throws on a value it refuses
 // upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report, subject, checkTool })
@@ -55,10 +60,11 @@
 // setLiveStatus({ conversationKey?, channel, ts, system?, agent?, task?, runId?, kept?, keptFor? }) — the live
 //   status of one message of a conversation, an owner message or a reply (live-status.js names the states and
 //   says which message shows what): the layers it shows, the run they belong to, and kept, the task it keeps
-//   once the live status leaves it, with keptFor, the owner message that task answers. A field left out keeps
-//   its value, null clears it. conversationKey is needed only to insert: without it, a message with no row is
-//   skipped (null). Every write takes the next rev, so a reader asks for the rows changed since the rev it
-//   last read. A row of a database made before kept existed keeps its task, which answers its own message.
+//   once the live status leaves it, with keptFor, the owner message that task, or the reply the message
+//   belongs to, answers. A field left out keeps its value, null clears it. conversationKey is needed only to
+//   insert: without it, a message with no row is skipped (null). Every write takes the next rev, so a reader
+//   asks for the rows changed since the rev it last read. A row of a database made before kept existed keeps
+//   its task, which answers its own message.
 // getLiveStatus(channel, ts)
 // liveStatuses({ sinceRev, conversationKey }) — rows with rev above sinceRev, oldest change first
 // setLiveShown(channel, ts, shown) — records what the message's reactions show (the Slack connector's
@@ -208,6 +214,7 @@ class Store {
         last_error TEXT,
         channel TEXT,
         ts TEXT,
+        posted TEXT,
         created_at INTEGER NOT NULL,
         delivered_at INTEGER
       );
@@ -258,6 +265,8 @@ class Store {
       for (const added of ['subject', 'check_tool']) {
         if (!columns.includes(added)) this.db.exec(`ALTER TABLE schedules ADD COLUMN ${added} TEXT`);
       }
+      const outbox = this.db.prepare('PRAGMA table_info(outbox)').all().map((column) => column.name);
+      if (!outbox.includes('posted')) this.db.exec('ALTER TABLE outbox ADD COLUMN posted TEXT');
       const live = this.db.prepare('PRAGMA table_info(live_status)').all().map((column) => column.name);
       if (!live.includes('shown')) this.db.exec('ALTER TABLE live_status ADD COLUMN shown TEXT');
       if (!live.includes('kept')) {
@@ -790,7 +799,7 @@ class Store {
 
   _outbox(row) {
     if (!row) return null;
-    return { ...row, payload: parse(row.payload), as_root: row.as_root === 1 };
+    return { ...row, payload: parse(row.payload), as_root: row.as_root === 1, posted: parse(row.posted) || [] };
   }
 
   pendingOutbox(now = Date.now()) {
@@ -803,7 +812,9 @@ class Store {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id);
       if (!row) throw new Error('unknown outbox message');
-      if (row.state === 'delivered') return { channel: row.channel, ts: row.ts, clientMsgId: row.client_msg_id };
+      if (row.state === 'delivered') {
+        return { channel: row.channel, ts: row.ts, clientMsgId: row.client_msg_id, posted: parse(row.posted) || [] };
+      }
       if (asRoot) {
         this.db.prepare('UPDATE outbox SET as_root=1 WHERE id=?').run(id);
         row.as_root = 1;
@@ -828,7 +839,7 @@ class Store {
           team: conv.workspace, channel, ts,
         });
       }
-      return { channel, ts, clientMsgId: row.client_msg_id, conversationKey: conversationKeyValue };
+      return { channel, ts, clientMsgId: row.client_msg_id, conversationKey: conversationKeyValue, posted: parse(row.posted) || [] };
     });
   }
 
@@ -847,13 +858,26 @@ class Store {
   rememberPost(id, { channel, ts }) {
     if (!channel || !ts) throw new Error('posted Slack channel and timestamp required');
     return this.transaction(() => {
-      const row = this.db.prepare('SELECT state FROM outbox WHERE id=?').get(id);
-      if (!row) throw new Error('unknown outbox message');
-      if (row.state !== 'pending') return false;
+      if (!this._rememberPosted(id, ts)) return false;
       this.db.prepare(`UPDATE outbox SET channel=?, ts=? WHERE id=? AND state='pending' AND ts IS NULL`)
         .run(channel, ts, id);
       return true;
     });
+  }
+
+  rememberUpload(id, ts) {
+    if (!ts) throw new Error('uploaded Slack timestamp required');
+    return this.transaction(() => this._rememberPosted(id, ts));
+  }
+
+  // Adds ts to a pending row's posted list; false when the row is no longer pending.
+  _rememberPosted(id, ts) {
+    const row = this.db.prepare('SELECT state, posted FROM outbox WHERE id=?').get(id);
+    if (!row) throw new Error('unknown outbox message');
+    if (row.state !== 'pending') return false;
+    const posted = parse(row.posted) || [];
+    if (!posted.includes(ts)) this.db.prepare('UPDATE outbox SET posted=? WHERE id=?').run(json([...posted, ts]), id);
+    return true;
   }
 
   stopOutbox(id, error) {

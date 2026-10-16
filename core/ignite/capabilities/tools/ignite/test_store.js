@@ -385,7 +385,7 @@ test('2f outbox client_msg_id retry state and delivered ts', (store) => {
   assert.equal(delivered.ts, '3.3');
   assert.equal(delivered.clientMsgId, 'ob1');
   assert.deepEqual(store.markDelivered('ob1', { channel: 'OTHER', ts: '9.9' }), {
-    channel: 'C1', ts: '3.3', clientMsgId: 'ob1',
+    channel: 'C1', ts: '3.3', clientMsgId: 'ob1', posted: [],
   });
   assert.equal(store.pendingOutbox(9_000).length, 0);
 });
