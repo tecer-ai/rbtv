@@ -98,8 +98,8 @@ function operationsFor(name, deps) {
   const adapter = require(path.join(__dirname, '..', '..', '..', '..', '..', 'connectors', name, 'capabilities', 'tools', name, 'lib', 'messaging.js'));
   const section = deps.listeners?.[name] || null;
   return {
-    async 'message.send'(input) { return adapter.operations['message.send'](input, { section, spawn: deps.spawn, account: section?.account, mailbox: section?.mailbox }); },
-    async 'message.file'(input) { return adapter.operations['message.file'](input, { section, spawn: deps.spawn, account: section?.account }); },
+    async 'message.send'(input) { return adapter.operations['message.send'](input, { section, spawn: deps.spawn, account: section?.account, mailbox: section?.mailbox, owner: section?.owner, installation: deps.workspace }); },
+    async 'message.file'(input) { return adapter.operations['message.file'](input, { section, spawn: deps.spawn, account: section?.account, mailbox: section?.mailbox, owner: section?.owner, installation: deps.workspace }); },
   };
 }
 

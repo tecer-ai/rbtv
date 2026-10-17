@@ -77,7 +77,7 @@ function readTurnMemory(home, cwd = home, store = null, now = Date.now()) {
 }
 
 function linesOf(rows) {
-  return rows.map((row) => `[${row.role}] ${row.text}${row.role === 'owner' && row.ts ? `\nSlack timestamp of this message: ${row.ts}` : ''}`);
+  return rows.map((row) => `[${row.role}] ${row.text}${stampOf(row)}`);
 }
 
 function checkLines(check) {
@@ -91,6 +91,19 @@ function checkLines(check) {
       JSON.stringify(check.found));
   }
   return lines.map((line) => `\n${line}`).join('');
+}
+
+function stampOf(row) {
+  if (row.role !== 'owner' || !row.ts) return '';
+  const connector = row.metadata?.connector || row.connector;
+  if (connector && connector !== 'slack') {
+    const trust = row.metadata?.trusted || row.provenance?.trusted ? 'trusted' : 'claimed';
+    const sender = row.metadata?.claimed || row.metadata?.from || row.provenance?.claimed || '';
+    const account = row.metadata?.account || row.provenance?.account || '';
+    const conversation = row.metadata?.conversation || row.channel || row.provenance?.conversation || '';
+    return `\nSource: ${connector} account ${account} conversation ${conversation} id ${row.ts} sender ${trust} ${sender}`;
+  }
+  return `\nSlack timestamp of this message: ${row.ts}`;
 }
 
 function composeTurn({ board, memory = [], work, inputs, recent, stored, historyPath, resultPath, nonce, rehydrate }) {
@@ -116,8 +129,13 @@ function composeTurn({ board, memory = [], work, inputs, recent, stored, history
       const files = input.files?.length ? `\nattachments: ${input.files.join(', ')}` : '';
       const missing = input.missingFiles
         ? `\n${input.missingFiles} attached file(s) could not be downloaded; tell the owner.` : '';
-      // The Slack timestamp names the owner message that started the turn, the source an approval cites.
-      const ts = input.ts ? `\nSlack timestamp of this message: ${input.ts}` : '';
+      const ts = stampOf({
+        role: input.role === 'owner' ? 'owner' : input.role,
+        ts: input.ts,
+        connector: input.connector || input.provenance?.connector,
+        metadata: input.provenance || input.metadata,
+        channel: input.provenance?.conversation,
+      });
       return `[${input.role}] ${input.text}${files}${missing}${ts}${checkLines(input.check)}`;
     }),
     'Recent messages of this conversation:',

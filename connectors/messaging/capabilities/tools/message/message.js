@@ -357,11 +357,18 @@ function policyConfig(ctx) {
   return ctx.installation ? readJson(path.join(ctx.installation, '.rbtv', 'config', 'ignite', 'config.json')) : null;
 }
 
+function listenerSection(ctx, name) {
+  return policyConfig(ctx)?.listeners?.[name] || null;
+}
+
 function referenceAccount(ctx, ref, verb) {
-  const team = ref.connector === 'slack' ? policyConfig(ctx)?.slack?.team : null;
-  if (team && ref.account !== team) {
+  const config = policyConfig(ctx);
+  const expected = ref.connector === 'slack' ? config?.slack?.team : null;
+  const section = listenerSection(ctx, ref.connector);
+  const names = [expected, section?.account, section?.mailbox].filter(Boolean);
+  if (names.length && !names.includes(ref.account)) {
     throw refuse(`${verb} refused: reference account does not match the configured account`,
-      `the reference names ${ref.account}; Ignite config names ${team}`,
+      `the reference names ${ref.account}; Ignite config names ${names.join(' or ')}`,
       'copy the Ref line from this account; nothing was sent');
   }
 }
@@ -393,7 +400,9 @@ async function permission(ctx, connector, to, verb) {
   const channels = connector.name === 'slack' && slug && config?.routes
     ? Object.entries(config.routes).filter(([id, agent]) => agent === slug && /^[CG][A-Z0-9]+$/.test(id)).map(([id]) => id) : [];
   if (config?.slack?.team && (channels.includes(to) || (verb === 'send' && owner && to === owner))) return;
-  if (connector.name !== 'slack' && owner && (to === owner || String(to).startsWith(`${owner}@`))) return;
+  const section = listenerSection(ctx, connector.name);
+  if (connector.name !== 'slack' && verb === 'reply' && section?.account) return;
+  if (connector.name !== 'slack' && owner && (to === owner || String(to).startsWith(`${owner}@`) || String(to).replace(/\D/g, '') === String(owner).replace(/\D/g, ''))) return;
   let verification = '';
   if (verb === 'reply' && owner && config?.slack?.team && /^D[A-Z0-9]+$/.test(to)) {
     try { if (await ownerConversation(ctx, to, owner)) return; }
@@ -406,17 +415,21 @@ async function permission(ctx, connector, to, verb) {
 }
 
 async function accountOf(adapter, ctx, connector, verb, ref = null) {
+  const section = listenerSection(ctx, connector.name);
   let account;
   try {
-    account = typeof adapter.account === 'function' ? await adapter.account() : null;
+    account = typeof adapter.account === 'function' ? await adapter.account({
+      section, account: section?.account, mailbox: section?.mailbox, owner: section?.owner, installation: ctx.installation,
+    }) : null;
     if (typeof account !== 'string' || !account.trim() || account.includes(':')) throw new Error('the connector did not confirm its account identity');
   } catch (error) {
     throw refuse(`${verb} failed: ${connector.name} did not answer`, error.message, 'run the same command again; nothing was sent');
   }
-  const configured = connector.name === 'slack' ? policyConfig(ctx)?.slack?.team : null;
-  if ((ref && account !== ref.account) || (configured && account !== configured)) {
+  const configured = connector.name === 'slack' ? policyConfig(ctx)?.slack?.team : (section?.mailbox || section?.account || null);
+  const accepted = [ref?.account, configured, section?.account, section?.mailbox].filter(Boolean);
+  if (accepted.length && !accepted.includes(account)) {
     throw refuse(`${verb} refused: connector account does not match`,
-      `the connector answered ${account}; expected ${ref?.account || configured}`,
+      `the connector answered ${account}; expected ${accepted.join(' or ')}`,
       'use the configured account and a reference from it; nothing was sent');
   }
   return account;
@@ -433,16 +446,48 @@ function checkAddress(all, connector, to) {
 
 // ───────────────────────────────────────────────────────────── output
 
+function adapterContext(ctx, connector) {
+  const section = listenerSection(ctx, connector.name);
+  return { section, account: section?.account, mailbox: section?.mailbox, owner: section?.owner, installation: ctx.installation };
+}
+
+function boundOperations(adapter, ctx, connector) {
+  const extra = adapterContext(ctx, connector);
+  const bound = {};
+  if (typeof adapter.operations['message.send'] === 'function') {
+    bound['message.send'] = (input) => adapter.operations['message.send'](input, extra);
+  }
+  if (typeof adapter.operations['message.file'] === 'function') {
+    bound['message.file'] = (input) => adapter.operations['message.file'](input, extra);
+  }
+  return bound;
+}
+
 function rememberThread(ctx, row) {
   if (!ctx.installation || !row.agent || !row.thread) return;
   const file = path.join(ctx.installation, '.rbtv', 'runtime', 'ignite', 'message-threads.json');
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
-    const rows = Array.isArray(current) ? current : [];
-    rows.push({ ...row, via: 'message-send' });
-    fs.writeFileSync(file, JSON.stringify(rows));
-  } catch { /* the send already happened; affinity is retried from the file when the write works */ }
+  const lock = `${file}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    let fd;
+    try { fd = fs.openSync(lock, 'wx'); } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      continue;
+    }
+    try {
+      const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
+      const rows = Array.isArray(current) ? current : [];
+      rows.push({ ...row, via: 'message-send' });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(rows));
+      fs.renameSync(tmp, file);
+      return;
+    } finally {
+      fs.closeSync(fd);
+      try { fs.unlinkSync(lock); } catch { /* released */ }
+    }
+  }
+  throw new Error('message thread file is busy');
 }
 
 function emitSent(io, json, verb, result) {
@@ -540,7 +585,7 @@ async function doSend(io, parsed, ctx) {
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
-    result = await sendModule.send(adapter.operations, { ...where, thread: null, text: body || '', files, as, clientId: `message:${randomUUID()}` });
+    result = await sendModule.send(boundOperations(adapter, ctx, connector), { ...where, thread: null, text: body || '', files, as, clientId: `message:${randomUUID()}` });
   } catch (error) {
     throw refuse(`send failed: ${connector.name} did not deliver`, error.message, 'run the same command again; nothing was sent');
   }
@@ -570,7 +615,7 @@ async function doReply(io, parsed, ctx) {
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
-    result = await sendModule.send(adapter.operations, { group: ref.conversation, thread: ref.id, text: body || '', files, as, clientId: `message:${randomUUID()}` });
+    result = await sendModule.send(boundOperations(adapter, ctx, connector), { group: ref.conversation, thread: ref.id, text: body || '', files, as, clientId: `message:${randomUUID()}` });
   } catch (error) {
     if (error.code === 'thread') throw refuse('reply failed: thread not found', error.message, 'message history --thread REF of a reference message send printed; nothing was sent');
     throw refuse(`reply failed: ${connector.name} did not deliver`, error.message, 'run the same command again; nothing was sent');
@@ -599,7 +644,7 @@ async function doHistory(io, parsed, ctx) {
   }
   let result;
   try {
-    result = await adapter.operations['message.history']({ conversation: ref.conversation, thread: ref.id });
+    result = await adapter.operations['message.history']({ conversation: ref.conversation, thread: ref.id }, adapterContext(ctx, connector));
   } catch (error) {
     if (error.code === 'thread') throw refuse('history failed: thread not found', error.message, 'message history --thread REF of a reference message send printed');
     throw refuse(`history failed: ${connector.name} did not answer`, error.message, 'run the same command again');

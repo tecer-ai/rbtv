@@ -566,8 +566,8 @@ async function startLocked(opts, workspace, held) {
     }
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
-    try { listenerSession?.stop(); } catch (error) { log({ event: 'listener-stop', message: error.message }); }
-    statusDone = Promise.all([stopStatus(), paymentsDone, audio?.close?.()]).then(() => {
+    const listenerDone = Promise.resolve().then(() => listenerSession?.stop?.()).catch((error) => log({ event: 'listener-stop', message: error.message }));
+    statusDone = Promise.all([stopStatus(), paymentsDone, audio?.close?.(), listenerDone]).then(() => {
       releaseLock(held);
       for (const slug of [...stores.keys()]) {
         if (!inflight.has(slug)) closeStore(slug);
@@ -622,6 +622,7 @@ async function startLocked(opts, workspace, held) {
     return { stop, config, onEvent, webhookPort: listening };
   } catch (error) {
     for (const timer of timers) clearInterval(timer);
+    try { await listenerSession?.stop?.(); } catch (stopError) { log({ event: 'listener-stop', message: stopError.message }); }
     await Promise.all([stopStatus(), stopPayments()]);
     releaseLock(held);
     throw error;

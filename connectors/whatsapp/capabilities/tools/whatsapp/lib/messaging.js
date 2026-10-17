@@ -1,16 +1,22 @@
 'use strict';
 
-// WhatsApp messaging adapter. Inbound is a localhost receiver: wacli sync --webhook posts JSON signed
-// with HMAC-SHA256 in X-Wacli-Signature (wacli sync --help). A missing or wrong signature is refused
-// before any event is dispatched. The owner is the configured phone, never a field of the body.
+// WhatsApp messaging adapter. Inbound is a localhost receiver. Ignite starts
+// `whatsapp sync --follow` on the installation store and points it at that receiver.
+// wacli signs the body with HMAC-SHA256 in X-Wacli-Signature. A missing or wrong
+// signature is refused before dispatch. The owner is the configured phone, never a body field.
+// The linked session is `wacli auth status`: its phone must match the configured account.
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { spawnable } = require('../../../../../../core/cast/capabilities/tools/cast/lib/win-exec');
 
 const HEADER = 'x-wacli-signature';
 const HOST = '127.0.0.1';
 const MAX_BODY = 64 * 1024;
+const COMMAND_MS = 60_000;
+const READY_MS = 15_000;
 
 function fail(reason, message) {
   const error = new Error(message);
@@ -38,16 +44,75 @@ function signed(secret, header, body) {
   return same(given, signature(secret, body));
 }
 
+function launch(args, spawnImpl, extra = {}) {
+  if (typeof spawnImpl === 'function' && spawnImpl !== spawn) {
+    return spawnImpl('whatsapp', args, { stdio: ['ignore', 'pipe', 'pipe'], ...extra });
+  }
+  const win = spawnable('whatsapp', args);
+  return spawn(win.cmd, win.args, { stdio: ['ignore', 'pipe', 'pipe'], ...win.opts, ...extra });
+}
+
+function run(args, spawnImpl) {
+  return new Promise((resolve, reject) => {
+    const child = launch(args, spawnImpl);
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(fail(null, 'whatsapp command timed out'));
+    }, COMMAND_MS);
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) reject(fail(null, `whatsapp answered ${(err || out).trim() || `exit ${code}`}`));
+      else resolve(out);
+    });
+  });
+}
+
+function envelope(text) {
+  const body = JSON.parse(text);
+  if (body.success === false) throw fail(null, `whatsapp answered ${body.error || 'error'}`);
+  return body.data && typeof body.data === 'object' ? body.data : body;
+}
+
+function storeOf(ctx = {}) {
+  if (ctx.store) return ctx.store;
+  const root = ctx.installation || ctx.workspace;
+  if (!root) return null;
+  return path.join(root, '.rbtv', 'runtime', 'whatsapp');
+}
+
+function globalArgs(ctx) {
+  const store = storeOf(ctx);
+  return store ? ['--store', store] : [];
+}
+
+function jidOf(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value.String === 'function') return value.String();
+  if (value.User && value.Server) return `${value.User}@${value.Server}`;
+  return String(value);
+}
+
 function payloadOf(body) {
   const parsed = JSON.parse(body.toString('utf8'));
-  const message = parsed && typeof parsed.message === 'object' && parsed.message ? parsed.message : parsed;
+  if (parsed.EventType && parsed.EventType !== 'message') return { ignore: true };
+  const message = parsed.Message && typeof parsed.Message === 'object' ? parsed.Message : parsed;
+  const chat = jidOf(message.Chat || message.ChatJID || message.chat);
+  const id = message.ID || message.MsgID || message.id || null;
+  const reply = message.ReplyToID || message.quoted_msg_id || null;
   return {
-    id: message.id || message.message_id || null,
-    chat: message.chat_jid || message.chat || message.conversation || null,
-    sender: message.sender_jid || message.sender || message.from || '',
-    text: message.text || message.body || '',
-    fromMe: Boolean(message.from_me || message.fromMe),
-    at: Number(message.timestamp || message.at) || Date.now(),
+    id: id ? String(id) : null,
+    chat: chat || null,
+    sender: jidOf(message.SenderJID || message.sender) || '',
+    text: message.Text || message.text || '',
+    fromMe: Boolean(message.FromMe || message.from_me),
+    at: Date.parse(message.Timestamp) || Number(message.timestamp) || Date.now(),
+    replyTo: reply ? String(reply) : null,
   };
 }
 
@@ -55,15 +120,17 @@ function eventOf(fields, { owner, account }) {
   const sender = digits(fields.sender);
   const ownerDigits = digits(owner);
   const group = fields.chat && String(fields.chat).includes('@g.us') ? fields.chat : null;
+  const at = Number(fields.at) || Date.now();
   return {
     connector: 'whatsapp',
     account,
     id: String(fields.id),
-    at: fields.at > 1e12 ? fields.at : fields.at * 1000,
+    at: at > 1e12 ? at : at * 1000,
     from: sender || String(fields.sender || ''),
+    claimedFrom: sender || String(fields.sender || ''),
     group,
     conversation: fields.chat,
-    thread: null,
+    thread: fields.replyTo || null,
     text: fields.text || '',
     files: [],
     isSelf: fields.fromMe || sender === digits(account),
@@ -71,6 +138,7 @@ function eventOf(fields, { owner, account }) {
       verified: true,
       method: 'webhook-secret',
       owner: Boolean(ownerDigits) && sender === ownerDigits && !fields.fromMe,
+      claimed: sender || String(fields.sender || ''),
     },
   };
 }
@@ -81,6 +149,7 @@ function listen({ secret, owner, account, port = 8791, onEvent, onReject, host =
   if (!owner || !account) throw new Error('owner identity is not configured');
   const server = http.createServer((req, res) => {
     const done = (status, body) => {
+      if (res.writableEnded) return;
       const data = JSON.stringify(body);
       res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) });
       res.end(data);
@@ -91,11 +160,8 @@ function listen({ secret, owner, account, port = 8791, onEvent, onReject, host =
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY) {
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
+      if (size > MAX_BODY) req.destroy();
+      else chunks.push(chunk);
     });
     req.on('end', () => {
       const raw = Buffer.concat(chunks);
@@ -107,6 +173,7 @@ function listen({ secret, owner, account, port = 8791, onEvent, onReject, host =
       try { fields = payloadOf(raw); } catch {
         return done(400, { error: 'bad json' });
       }
+      if (fields.ignore) return done(200, { ok: true });
       if (!fields.id || !fields.chat) return done(400, { error: 'id and chat required' });
       const event = eventOf(fields, { owner, account });
       Promise.resolve(typeof onEvent === 'function' ? onEvent(event) : null)
@@ -123,19 +190,23 @@ function listen({ secret, owner, account, port = 8791, onEvent, onReject, host =
   });
 }
 
-function run(args, spawnImpl = spawn) {
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl('wacli', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (chunk) => { out += chunk; });
-    child.stderr.on('data', (chunk) => { err += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) reject(fail(null, `whatsapp answered ${err.trim() || `exit ${code}`}`));
-      else resolve(out);
-    });
-  });
+async function sessionStatus(ctx = {}) {
+  const store = storeOf(ctx);
+  if (!store) throw new Error('the connector did not confirm its account identity');
+  const out = await run([...globalArgs(ctx), '--json', '--read-only', 'auth', 'status'], ctx.spawn);
+  const data = envelope(out);
+  return data;
+}
+
+async function account(ctx = {}) {
+  const wanted = ctx.account || ctx.section?.account;
+  if (!wanted) throw new Error('the connector did not confirm its account identity');
+  const status = await sessionStatus({ ...ctx, account: wanted, section: ctx.section });
+  const phone = status.phone || digits(status.linked_jid);
+  if (!status.authenticated || !phone || digits(phone) !== digits(wanted)) {
+    throw new Error('the connector did not confirm its account identity');
+  }
+  return digits(wanted);
 }
 
 function address(value) {
@@ -147,52 +218,87 @@ function address(value) {
   throw error;
 }
 
-async function account(ctx = {}) {
-  if (ctx.account) return ctx.account;
-  throw new Error('the connector did not confirm its account identity');
+function confirmed(data, to, thread) {
+  const id = data.id || data.MsgID;
+  if (!id) throw fail(null, 'whatsapp did not confirm the message');
+  return { conversation: data.to || data.ChatJID || to, id: String(id), thread: thread || null };
+}
+
+function supervise({ store, secret, port, account, spawn: spawnImpl, onLog } = {}) {
+  if (!store || !secret || !port || !account) throw new Error('owner identity is not configured');
+  let child = null;
+  let stopping = false;
+  let timer = null;
+  const log = (reason) => { if (typeof onLog === 'function') onLog(reason); };
+  const args = ['--store', store, 'sync', '--follow', '--webhook', `http://${HOST}:${port}/whatsapp`, '--webhook-secret', secret, '--webhook-allow-private'];
+  function startChild() {
+    child = launch(args, spawnImpl);
+    child.stdout.on('data', () => {});
+    child.stderr.on('data', () => {});
+    child.on('error', (error) => log(error.message));
+    child.on('exit', (code) => {
+      child = null;
+      if (stopping) return;
+      log(`whatsapp sync exited ${code}`);
+      timer = setTimeout(startChild, 2000);
+      if (typeof timer.unref === 'function') timer.unref();
+    });
+  }
+  startChild();
+  return {
+    async stop() {
+      stopping = true;
+      if (timer) clearTimeout(timer);
+      if (!child) return;
+      const exited = new Promise((resolve) => child.once('exit', () => resolve()));
+      child.kill();
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, READY_MS))]);
+    },
+  };
 }
 
 const operations = {
-  async 'message.send'({ group, contact, thread, text, clientId } = {}, ctx = {}) {
+  async 'message.send'({ group, contact, thread, text } = {}, ctx = {}) {
     const to = group || contact;
     if (!to || !text) throw fail(null, 'whatsapp answered no_text: the message is empty');
-    const args = ['--json', 'send', 'text', '--to', to, '--message', text];
+    await account(ctx);
+    const args = [...globalArgs(ctx), '--json', 'send', 'text', '--to', to, '--message', text];
     if (thread) args.push('--reply-to', thread);
-    if (clientId) args.push('--message-id', clientId);
-    const out = await run(args, ctx.spawn);
-    let body = {};
-    try { body = JSON.parse(out); } catch { body = {}; }
-    const id = body.id || body.message_id;
-    if (!id) throw fail(null, 'whatsapp did not confirm the message');
-    return { conversation: body.chat_jid || body.chat || to, id, thread: thread || null };
+    const data = envelope(await run(args, ctx.spawn));
+    return confirmed(data, to, thread || null);
   },
   async 'message.file'({ send } = {}, ctx = {}) {
     if (!send?.file) throw fail(null, 'whatsapp needs a file to send');
     const to = send.conversation || send.contact;
-    const args = ['--json', 'send', 'file', '--to', to, '--file', send.file];
+    await account(ctx);
+    const args = [...globalArgs(ctx), '--json', 'send', 'file', '--to', to, '--file', send.file];
     if (send.thread) args.push('--reply-to', send.thread);
-    const out = await run(args, ctx.spawn);
-    let body = {};
-    try { body = JSON.parse(out); } catch { body = {}; }
-    if (!body.id) throw fail(null, 'whatsapp did not confirm the file');
-    return { id: body.id, conversation: body.chat_jid || to, thread: send.thread || null };
+    const data = envelope(await run(args, ctx.spawn));
+    if (!data.id) throw fail(null, 'whatsapp did not confirm the file');
+    return { id: String(data.id), conversation: data.to || to, thread: send.thread || null };
   },
   async 'message.history'({ conversation, thread } = {}, ctx = {}) {
-    if (!conversation || !thread) return { events: [] };
-    const out = await run(['--json', 'messages', 'search', '--chat', conversation, '--query', thread], ctx.spawn);
-    let body = {};
-    try { body = JSON.parse(out); } catch { body = {}; }
-    const rows = Array.isArray(body.messages) ? body.messages : [];
+    if (!conversation) return { events: [] };
+    await account(ctx);
+    const out = await run([...globalArgs(ctx), '--json', 'messages', 'list', '--chat', conversation, '--limit', '200'], ctx.spawn);
+    const data = envelope(out);
+    const rows = Array.isArray(data.messages) ? data.messages : [];
+    const kept = thread ? rows.filter((row) => row.MsgID === thread || row.quoted_msg_id === thread) : rows;
     return {
-      events: rows.map((row) => eventOf({
-        id: row.id, chat: conversation, sender: row.sender_jid || row.sender || '', text: row.text || '', fromMe: row.from_me, timestamp: row.timestamp,
-      }, { owner: ctx.owner || '', account: ctx.account || '' })),
+      events: kept.map((row) => eventOf({
+        id: row.MsgID, chat: row.ChatJID || conversation, sender: row.SenderJID || '', text: row.Text || '',
+        fromMe: row.FromMe, timestamp: Date.parse(row.Timestamp) || Date.now(), replyTo: row.quoted_msg_id || null,
+      }, { owner: ctx.owner || ctx.section?.owner || '', account: ctx.account || '' })),
     };
   },
-  async 'message.receive'({ onEvent, secret, owner, account, port } = {}) {
-    const listening = await listen({ secret, owner, account, port, onEvent });
-    return { stop: () => listening.close() };
+  async 'message.receive'({ onEvent, secret, owner, account: linked, port, installation, spawn: spawnImpl } = {}) {
+    const listening = await listen({ secret, owner, account: linked, port, onEvent });
+    const store = storeOf({ installation, account: linked });
+    const sync = store ? supervise({ store, secret, port: listening.port, account: linked, spawn: spawnImpl }) : null;
+    return { stop: async () => { if (sync) await sync.stop(); await listening.close(); } };
   },
 };
 
-module.exports = { operations, address, account, listen, signed, signature, eventOf, HEADER, HOST };
+module.exports = {
+  operations, address, account, listen, signed, signature, eventOf, payloadOf, supervise, sessionStatus, HEADER, HOST,
+};

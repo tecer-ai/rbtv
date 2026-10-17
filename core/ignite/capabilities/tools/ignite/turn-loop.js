@@ -341,6 +341,8 @@ async function execute(slug, claim, deps) {
     inputs: [{
       role: claim.kind, text: prepared.text, files: prepared.files, missingFiles: prepared.missingFiles,
       ts: claim.kind === 'owner' ? claim.payload?.ts : undefined,
+      connector: claim.payload?.connector,
+      provenance: claim.payload?.provenance,
       check: claim.kind === 'schedule' ? claim.payload?.details : undefined,
     }],
     recent,

@@ -44,7 +44,10 @@ function writeHistory(home, store, key) {
     lines.push(`(file holds the newest ${FULL_HISTORY_LIMIT} messages; the store has the rest)`, '');
   }
   for (const row of rows) {
-    const ts = row.role === 'owner' && row.ts ? ` (Slack timestamp ${row.ts})` : '';
+    const connector = row.metadata?.connector;
+    const ts = row.role === 'owner' && row.ts
+      ? (connector && connector !== 'slack' ? ` (${connector} id ${row.ts})` : ` (Slack timestamp ${row.ts})`)
+      : '';
     lines.push(`## ${row.created_at} ${row.role}${ts}`, row.text || '', '');
   }
   const file = historyPath(home, key);

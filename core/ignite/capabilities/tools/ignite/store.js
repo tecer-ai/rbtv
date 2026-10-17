@@ -98,11 +98,12 @@ const AUTO_PRIORITY = 10;
 const json = (value) => JSON.stringify(value ?? null);
 const parse = (value) => value == null ? null : JSON.parse(value);
 
-function conversationKey(team, channel, rootTs) {
+function conversationKey(team, channel, rootTs, connector) {
   if (!team || !channel || !rootTs) throw new Error('team, channel and root ts required');
-  for (const part of [team, channel, rootTs]) {
+  for (const part of [team, channel, rootTs, connector].filter((value) => value != null && value !== '')) {
     if (String(part).includes(':')) throw new Error('conversation key parts cannot contain colon');
   }
+  if (connector && connector !== 'slack') return `${connector}:${team}:${channel}:${rootTs}`;
   return `${team}:${channel}:${rootTs}`;
 }
 
@@ -129,6 +130,7 @@ class Store {
     this.db = new DatabaseSync(dbPath);
     this._inTx = false;
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
+    this.db.exec('DROP INDEX IF EXISTS messages_slack_id;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS conversations (
         key TEXT PRIMARY KEY,
@@ -158,7 +160,8 @@ class Store {
         ts TEXT,
         created_at INTEGER NOT NULL
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS messages_slack_id ON messages(team, channel, ts)
+      CREATE UNIQUE INDEX IF NOT EXISTS messages_service_id ON messages(
+        COALESCE(json_extract(metadata, '$.connector'), 'slack'), team, channel, ts)
         WHERE team IS NOT NULL AND channel IS NOT NULL AND ts IS NOT NULL;
       CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_key, created_at);
       CREATE TABLE IF NOT EXISTS work (
@@ -371,7 +374,9 @@ class Store {
 
   _recordMessage(conversationKeyValue, { id, role, text, files, metadata, team, channel, ts, createdAt }) {
     if (team && channel && ts) {
-      const existing = this.db.prepare('SELECT id FROM messages WHERE team=? AND channel=? AND ts=?').get(team, channel, ts);
+      const connector = metadata?.connector || 'slack';
+      const existing = this.db.prepare(`SELECT id FROM messages WHERE team=? AND channel=? AND ts=?
+        AND COALESCE(json_extract(metadata, '$.connector'), 'slack')=?`).get(team, channel, ts, connector);
       if (existing) return false;
     }
     return this.db.prepare(`INSERT OR IGNORE INTO messages

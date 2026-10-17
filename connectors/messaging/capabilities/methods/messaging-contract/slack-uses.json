@@ -1,16 +1,18 @@
 {
   "files": {
-    "config.js": "28d33bd333ad289f16a674def5df0779e35261e2c8bb2d8bce751161f9850d5e",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
-    "daemon.js": "5c133bfaf908851cc968a4018c182b59dabe797916d25054b6c8ca022af3f089",
+    "daemon.js": "405a8cdfc848b6cb88b86481054c728753dacda566526618417a415c459a96a9",
+    "history.js": "d26625c521bb2a6d9eb90f7dc78270d550b9c7741a0436f94c60c6c8b63ec201",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "listener.js": "2198fe7bf11482b1e40d434902703e7cef276ffe462ac0588622a4fb5122f1eb",
-    "outbox.js": "8bfe3e4c44eba19cf4320007ddef631ac6f1dadd6ebf8254bd4073f20369d0a2",
+    "listener.js": "57096a4b25095fe6889a7f859043393501d90006dc9c28b838e1ec28cc8560b0",
+    "outbox.js": "50f73b6fde3f1707b63bb4b72bd24a97d8f14ac728ae62a6179b4c2d2049febb",
     "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
+    "prompt.js": "56d396b1b67283a95c3df1e7a7f27148a5506d2191503080464607f253712e7b",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
-    "turn-loop.js": "d6c731044b584b58668ca532bf244bee0d43edf2bbdd8496cce4c74986e7c79b"
+    "store.js": "d83a8f3b12ba4a0ec17446535b50ab507581bd1a32d32c7abf20bee86ed57a9e",
+    "turn-loop.js": "f139c4da88102022f339e5145586ed4566c1f724dd3dea15ae6f1d1ee568b54f"
   },
   "uses": [
     {
@@ -458,6 +460,12 @@
       "kind": "call:connect,stop"
     },
     {
+      "file": "history.js",
+      "line": "? (connector && connector !== 'slack' ? ` (${connector} id ${row.ts})` : ` (Slack timestamp ${row.ts})`)",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
       "file": "ingress.js",
       "line": "const ownerUserId = config?.slack?.ownerUserId;",
       "nth": 0,
@@ -549,6 +557,12 @@
     },
     {
       "file": "listener.js",
+      "line": "if (event.connector === 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
       "line": "if (threaded && event.connector === 'slack') {",
       "nth": 0,
       "kind": "message"
@@ -579,14 +593,20 @@
     },
     {
       "file": "listener.js",
-      "line": "metadata: { connector: 'slack', account, from: raw.user || null, conversation: channel },",
+      "line": "metadata: { connector: 'slack', account, from: raw.user || null, conversation: channel, trusted: raw.user === ctx.config?.slack?.ownerUserId },",
       "nth": 0,
       "kind": "message"
     },
     {
       "file": "listener.js",
+      "line": "metadata: { connector: 'slack', account, from: raw.user || null, conversation: channel, trusted: raw.user === ctx.config?.slack?.ownerUserId },",
+      "nth": 1,
+      "kind": "config"
+    },
+    {
+      "file": "listener.js",
       "line": "if (event.connector === 'slack') {",
-      "nth": 0,
+      "nth": 1,
       "kind": "message"
     },
     {
@@ -609,7 +629,7 @@
     },
     {
       "file": "listener.js",
-      "line": "identity: { verified: ownerMatch, method: 'slack-socket', owner: ownerMatch },",
+      "line": "identity: { verified: ownerMatch, method: 'slack-socket', owner: ownerMatch, claimed: user },",
       "nth": 0,
       "kind": "message"
     },
@@ -866,6 +886,12 @@
       "kind": "call:updateMessage"
     },
     {
+      "file": "prompt.js",
+      "line": "if (connector && connector !== 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
       "file": "status-ticker.js",
       "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) \u2192 { step(), stop() }",
       "nth": 0,
@@ -906,6 +932,30 @@
       "line": "const client = typeof slack === 'function' ? slack() : null;",
       "nth": 1,
       "kind": "call:addReaction,removeReaction"
+    },
+    {
+      "file": "store.js",
+      "line": "if (connector && connector !== 'slack') return `${connector}:${team}:${channel}:${rootTs}`;",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "store.js",
+      "line": "COALESCE(json_extract(metadata, '$.connector'), 'slack'), team, channel, ts)",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "store.js",
+      "line": "const connector = metadata?.connector || 'slack';",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "store.js",
+      "line": "AND COALESCE(json_extract(metadata, '$.connector'), 'slack')=?`).get(team, channel, ts, connector);",
+      "nth": 0,
+      "kind": "message"
     },
     {
       "file": "turn-loop.js",

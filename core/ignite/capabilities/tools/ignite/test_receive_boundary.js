@@ -43,7 +43,7 @@ test('webhook secret is checked before dispatch and identity is not taken from t
     onReject: (row) => { rejected.push(row); },
   });
   try {
-    const body = JSON.stringify({ id: 'm1', chat_jid: '5511911112222@s.whatsapp.net', sender_jid: '5511911112222@s.whatsapp.net', text: 'ping', identity: { owner: true, verified: true } });
+    const body = JSON.stringify({ Chat: '5511911112222@s.whatsapp.net', ID: 'm1', SenderJID: '5511911112222@s.whatsapp.net', Text: 'ping', Timestamp: '2026-10-17T00:00:00Z', FromMe: false, identity: { owner: true, verified: true } });
     const wrong = await post(listening.port, body, { [HEADER]: 'sha256=00' });
     assert.equal(wrong.status, 401);
     assert.equal(seen.length, 0);
@@ -54,7 +54,7 @@ test('webhook secret is checked before dispatch and identity is not taken from t
     assert.equal(seen[0].identity.owner, true);
     assert.equal(seen[0].identity.method, 'webhook-secret');
     assert.equal(seen[0].from, '5511911112222');
-    const forged = JSON.stringify({ id: 'm2', chat_jid: 'x@s.whatsapp.net', from: '5511911112222', sender_jid: '5511888887777@s.whatsapp.net', text: 'no', identity: { owner: true } });
+    const forged = JSON.stringify({ Chat: '15550001111@s.whatsapp.net', ID: 'm2', SenderJID: '5511888887777@s.whatsapp.net', Text: 'no', FromMe: false, identity: { owner: true } });
     await post(listening.port, forged, { [HEADER]: signature('hook-secret', Buffer.from(forged)) });
     assert.equal(seen[1].identity.owner, false);
     assert.equal(seen[1].from, '5511888887777');
@@ -82,9 +82,10 @@ test('gmail owner is the verified sender, not the From header, and the cursor su
     child.stdin = { end() {} };
     child.kill = () => {};
     calls.push(1);
-    const body = JSON.stringify({ messages: [{ id: 'b', threadId: 't', date: '2026-10-16T00:00:00Z', sender_verification: { trusted: true, address: 'owner@example.com', reason: 'trusted' }, body_plain: 'hello' }] });
+    const body = JSON.stringify([{ id: 'b', threadId: 't', internalDate: '1792195200000', from: 'owner@example.com', sender_verification: { trusted: true, address: 'owner@example.com', mailbox: 'sara@example.com', reason: 'trusted' }, body_plain: 'hello' }]);
     process.nextTick(() => {
       child.stdout.emit('data', body);
+      child.stderr.emit('data', 'MAILBOX sara@example.com\n');
       child.emit('close', 0);
     });
     return child;
@@ -93,7 +94,7 @@ test('gmail owner is the verified sender, not the From header, and the cursor su
   await google.poll({ section, cursorFile, spawn, onEvent: async (event) => { events.push(event); return { queued: true }; } });
   await google.poll({ section, cursorFile, spawn, onEvent: async (event) => { events.push(event); return { queued: true }; } });
   assert.equal(events.length, 1);
-  assert.equal(JSON.parse(fs.readFileSync(cursorFile, 'utf8')).ids.includes('b'), true);
+  assert.equal(JSON.parse(fs.readFileSync(cursorFile, 'utf8')).seen.includes('b'), true);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
