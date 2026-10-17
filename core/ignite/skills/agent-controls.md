@@ -33,7 +33,7 @@ When the owner corrects your behaviour, record the correction in the board's Wat
 
 ## Documents in the channel canvas
 
-The owner reads and edits a repository Markdown file in your channel's canvas, opened from the Docs tab of `/agent` or by you with `ignite docs open <path>`; the file stays the source. When the owner asks you to bring the canvas edits in, run `ignite docs pull`, edit the file yourself from what changed, and tell the owner what you changed. A pull does not change the file. Comments stay in the canvas; when the pull reports comments, tell the owner you cannot read their text and ask for anything in them that matters. `ignite docs -h` gives the rest; use `--force` only when the owner says the canvas edits can be lost.
+The owner reads and edits a repository Markdown file in your channel's canvas, opened from the Docs tab of `/agent` or by you with `ignite docs open <path>`; the file stays the source. The owner keeps canvas edits with Save canvas, which writes them to your `output/ignite/canvas/` headed by `source`, the document they came from; `ignite docs save` does the same, and `ignite docs list` shows every save not yet brought in. When the owner asks you to bring the canvas edits in, save if the canvas has unsaved edits, compare each save with its source by content, edit the source yourself, delete the save, and tell the owner what you changed. A save does not change the source. Comments stay in the canvas; when a save reports comments, tell the owner you cannot read their text and ask for anything in them that matters. `ignite docs -h` gives the rest; use `--force` only when the owner says the canvas edits can be lost.
 
 ## Proactive posts
 

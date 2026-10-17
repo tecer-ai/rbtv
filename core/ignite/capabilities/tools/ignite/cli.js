@@ -49,7 +49,7 @@ const VERBS = {
   'runtime migrate': { options: [], words: 0 },
   'docs list': { options: [], words: 0 },
   'docs open': { options: ['force'], words: 1 },
-  'docs pull': { options: [], words: 0 },
+  'docs save': { options: [], words: 0 },
 };
 
 const HELP = `ignite — help
@@ -82,7 +82,7 @@ Timers, work, messages and memory
   runtime        Move this agent's database, conversations and turns into
                  runtime/ignite/.
   docs           List this agent's recent Markdown outputs, open one in
-                 its channel canvas, or pull the canvas back as Markdown.
+                 its channel canvas, or save the edited canvas as a file.
 
 Waking service
   deploy         Check the service's folder out at a commit, restart the
@@ -544,7 +544,7 @@ function cmdPost(ctx, flags, deps, { opts }) {
 // Its own context, closed when the Slack calls are done.
 async function cmdDocs(rest, flags, deps) {
   const [action, ...tail] = rest;
-  if (!['list', 'open', 'pull'].includes(action)) fail('docs requires list, open or pull\nNothing changed.\nignite docs -h');
+  if (!['list', 'open', 'save'].includes(action)) fail('docs requires list, open or save\nNothing changed.\nignite docs -h');
   const { opts, positionals } = parseOpts(tail, `docs ${action}`);
   if (action === 'open' && !positionals[0]) fail('docs open requires the path of a Markdown file, relative to the installation\nNothing changed.\nignite docs open -h');
   const ctx = openContext(flags, deps);
@@ -553,26 +553,30 @@ async function cmdDocs(rest, flags, deps) {
     if (action === 'list') {
       const list = docs.recentDocs(ctx.store, ctx.workspace);
       const open = docs.openDocument(ctx.store)?.path || null;
-      emit(deps, flags, { docs: list, open }, `${list.map((doc) => `${doc.path}  (from a turn ${new Date(doc.at).toISOString()})`).join('\n')}${list.length ? '\n' : 'no Markdown document in the recent turn outputs\n'}in the canvas: ${open || 'nothing'}\n`);
+      const saves = docs.pendingSaves(ctx.home);
+      emit(deps, flags, { docs: list, open, saves }, `${list.map((doc) => `${doc.path}  (from a turn ${new Date(doc.at).toISOString()})`).join('\n')}${list.length ? '\n' : 'no Markdown document in the recent turn outputs\n'}in the canvas: ${open || 'nothing'}\n${saves.map((one) => `saved, not yet brought in: ${one.file} (from ${one.source})\n`).join('')}`);
       return 0;
     }
     if (!ctx.config) fail('docs needs Ignite\'s config.json\nNothing changed.');
     const { Slack } = require('./slack.js');
     const { slackToken } = require('./config.js');
     const slack = deps.slack || new Slack({ botToken: slackToken(ctx.config, 'bot'), stoolsWorkspace: ctx.config.slack.stoolsWorkspace });
-    if (action === 'pull') {
-      const pulled = await docs.pullDoc({ slack, store: ctx.store });
-      if (!pulled) {
-        emit(deps, flags, { path: null }, 'no document is open in the canvas\n');
+    if (action === 'save') {
+      const saved = await docs.saveDoc({ slack, store: ctx.store, home: ctx.home, now: deps.now ? deps.now() : Date.now() });
+      if (!saved) {
+        emit(deps, flags, { source: null }, 'no document is open in the canvas\n');
         return 0;
       }
-      emit(deps, flags, pulled, `path: ${pulled.path}\nedited: ${pulled.edited ? 'yes' : 'no'}\ncomments: ${pulled.comments} (their text stays in the canvas)\n---\n${pulled.markdown}`);
+      const { markdown, ...fields } = saved;
+      emit(deps, flags, saved, saved.saved
+        ? `saved ${saved.saved} from ${saved.source} (${saved.comments} comments; their text stays in the canvas)\n`
+        : `nothing to save: the canvas of ${fields.source} is unchanged since it was opened or last saved\n`);
       return 0;
     }
     const channel = Object.entries(ctx.config.routes || {}).find(([, routed]) => routed === ctx.slug)?.[0];
     if (!channel) fail(`agent ${ctx.slug} has no channel of its own: documents open in a channel canvas\nNothing changed.`);
     const result = await docs.openDoc({ slack, store: ctx.store, workspace: ctx.workspace, channel, path: positionals[0], force: Boolean(opts.force) });
-    const next = result.refused === 'edited' ? 'bring the edits in first with ignite docs pull, or replace them with --force' : 'replace it with --force when what it holds can be lost';
+    const next = result.refused === 'edited' ? 'save the edits first with ignite docs save, or replace them with --force' : 'replace it with --force when what it holds can be lost';
     if (result.refused) fail(`not opened: ${result.why}\n${next}\nNothing changed.`);
     emit(deps, flags, result, `opened ${result.opened} in the canvas ${result.canvasId} of channel ${channel}\n`);
     return 0;

@@ -2,8 +2,9 @@
 
 // Docs of the /agent panel: the Markdown documents an agent's turns reported as outputs, and the one document open in
 // the agent's channel canvas (owner decision, 2026-10-17: on Slack's free plan a channel has one canvas, and it holds
-// the open document). The repository file stays the source: opening writes a copy into the canvas; pulling returns
-// the canvas as Markdown for the agent to bring into the file. A canvas edited since it was opened or pulled is never
+// the open document). The repository file stays the source: opening writes a copy into the canvas; saving writes the
+// edited canvas as a file in the agent's output/ignite/canvas/, headed by the path of the document it came from, for
+// the agent to bring into that document and then delete. A canvas edited since it was opened or saved is never
 // replaced unless asked, so edits are not lost.
 //
 // API
@@ -15,8 +16,11 @@
 //   refused 'edited' when the canvas changed since it was opened or last pulled, 'untracked' when the channel's canvas
 //   holds something Ignite did not open; force replaces it anyway.
 // forCanvas(markdown) → the Markdown a canvas accepts: links to targets other than http(s) and mailto escaped.
-// pullDoc({ slack, store }) → { path, markdown, edited, comments } or null when no document is open; the canvas as it
-//   is now becomes the baseline, so the next open no longer refuses.
+// saveDoc({ slack, store, home, now? }) → null when no document is open; else { source, saved, edited, comments,
+//   markdown }: when the canvas changed since it was opened or last saved, saved is the file written, relative to home,
+//   and the canvas as it is now becomes the baseline, so the next open no longer refuses; unchanged, saved is null and
+//   nothing is written.
+// pendingSaves(home) → [{ file, source, savedAt }] newest first: the saves in output/ignite/canvas/ not yet deleted.
 
 const fs = require('fs');
 const path = require('path');
@@ -24,6 +28,7 @@ const path = require('path');
 const { canvasMarkdown } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/canvas-markdown.js');
 
 const KEY = 'docs_canvas';
+const SAVES = path.join('output', 'ignite', 'canvas');
 
 // A canvas refuses a link Slack cannot open, such as a link to another repository file (observed 2026-10-17:
 // "Unsupported target for link"). Such a link goes in escaped, so the canvas shows it as written and a pull returns it
@@ -71,7 +76,7 @@ async function openDoc({ slack, store, workspace, channel, path: wanted, force =
     }
     const now = await canvasNow(slack, canvasId, record.path);
     if (now.markdown !== record.baseline) {
-      return { refused: 'edited', path: record.path, why: `${record.path} was edited in the canvas since it was opened; bring the edits in first` };
+      return { refused: 'edited', path: record.path, why: `${record.path} was edited in the canvas since it was opened or last saved` };
     }
   }
   if (canvasId) {
@@ -85,12 +90,36 @@ async function openDoc({ slack, store, workspace, channel, path: wanted, force =
   return { opened: wanted, canvasId };
 }
 
-async function pullDoc({ slack, store }) {
-  const record = openDocument(store);
-  if (!record) return null;
-  const now = await canvasNow(slack, record.canvasId, record.path);
-  store.setSetting(KEY, { ...record, baseline: now.markdown });
-  return { path: record.path, markdown: now.markdown, edited: now.markdown !== record.baseline, comments: now.comments };
+// A save's header: the document it came from, when, and which canvas, as YAML values JSON-quoted.
+function saveText(record, now, markdown, comments) {
+  const head = [['source', record.path], ['saved_at', new Date(now).toISOString()], ['canvas', record.canvasId], ['comments', comments]];
+  return `---\n${head.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n${markdown}`;
 }
 
-module.exports = { recentDocs, openDocument, openDoc, pullDoc, forCanvas };
+async function saveDoc({ slack, store, home, now = Date.now() }) {
+  const record = openDocument(store);
+  if (!record) return null;
+  const canvas = await canvasNow(slack, record.canvasId, record.path);
+  const result = { source: record.path, saved: null, edited: canvas.markdown !== record.baseline, comments: canvas.comments, markdown: canvas.markdown };
+  if (!result.edited) return result;
+  const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const saved = path.join(SAVES, `${stamp}-${path.basename(record.path)}`);
+  const file = path.join(home, saved);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, saveText(record, now, canvas.markdown, canvas.comments));
+  fs.renameSync(`${file}.tmp`, file);
+  store.setSetting(KEY, { ...record, baseline: canvas.markdown });
+  return { ...result, saved: saved.split(path.sep).join('/') };
+}
+
+function pendingSaves(home) {
+  const folder = path.join(home, SAVES);
+  if (!fs.existsSync(folder)) return [];
+  return fs.readdirSync(folder).filter((name) => name.endsWith('.md')).sort().reverse().map((name) => {
+    const head = fs.readFileSync(path.join(folder, name), 'utf8').split('\n---\n')[0];
+    const value = (key) => { try { return JSON.parse((head.match(new RegExp(`^${key}: (.*)$`, 'm')) || [])[1]); } catch { return null; } };
+    return { file: [...SAVES.split(path.sep), name].join('/'), source: value('source'), savedAt: value('saved_at') };
+  });
+}
+
+module.exports = { recentDocs, openDocument, openDoc, saveDoc, pendingSaves, forCanvas };

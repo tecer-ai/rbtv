@@ -523,12 +523,13 @@ Next: ignite board write -h
 The owner reads and edits a Markdown document of the repository in this agent's Slack channel
 canvas; the file stays the source. A channel has one canvas, so it holds one document at a time.
 The /agent panel's Docs tab runs the same operations. When the owner asks you to bring the canvas
-edits in, run pull, then edit the file yourself from what changed.
+edits in, run save (or take the saves list shows), bring each into its source, then delete it.
 
 Commands
-  list   The Markdown files your recent turns reported, and the one in the canvas.
-  open   Put a file in the canvas, unless it holds edits not yet pulled.
-  pull   The canvas as Markdown now; its edits then count as taken.
+  list   The Markdown files your recent turns reported, the one in the canvas, and the saves
+         not yet brought in.
+  open   Put a file in the canvas, unless it holds edits not yet saved.
+  save   Write the edited canvas to your output/ignite/canvas/, for you to bring in.
 
 Uses the agent home (RBTV_AGENT_HOME or --agent with --installation) and Ignite's config: the
 channel the config routes to this agent, and the bot token. The direct-message agent has no
@@ -541,30 +542,36 @@ Next: ignite docs COMMAND -h
 usage: ignite docs list [--json]
 
 The Markdown files your recent turns reported in RESULT_FILE outputs, inside the installation,
-newest first, each with when its turn ended, and the one in the canvas.
-Success: exit 0. --json: {docs: [{path, at}], open}, open null when the canvas holds none.
+newest first, each with when its turn ended; the one in the canvas; and the saves in your
+output/ignite/canvas/ not yet brought in and deleted.
+Success: exit 0. --json: {docs: [{path, at}], open, saves: [{file, source, savedAt}]}, open null
+when the canvas holds none.
 `,
   'docs open': `ignite docs open — put a document in this agent's channel canvas
 
 usage: ignite docs open <path> [--force] [--json]
 
 <path> is a .md file inside the installation, relative to it. It replaces what the canvas holds,
-and the canvas is named after it. Refused while the canvas holds edits not yet pulled, or
+and the canvas is named after it. Refused while the canvas holds edits not yet saved, or
 something Ignite did not open: nothing changes. --force replaces it anyway; the edits are lost.
 A link to another file goes in escaped, shown as written. Markdown Slack refuses (a bullet list
 inside a numbered list, a list inside a quote) fails with Slack's reason; nothing changes.
 Success: exit 0, "opened <path> in the canvas <id> of channel <channel>". --json: {opened, canvasId}
 `,
-  'docs pull': `ignite docs pull — the canvas back as Markdown
+  'docs save': `ignite docs save — keep the canvas edits as a file for you to bring in
 
-usage: ignite docs pull [--json]
+usage: ignite docs save [--json]
 
-The canvas as Markdown now, whether it was edited since it was opened or last pulled, and its
-comment count; the comments' text stays in the canvas. After a pull the canvas counts as unedited,
-so the next open no longer refuses. Lines of one paragraph come back joined by spaces, as Slack
-keeps them: compare by content, not line by line. A pull does not change the file.
-Success: exit 0, "path:", "edited:", "comments:" lines, "---", then the Markdown. --json:
-{path, markdown, edited, comments}, or {path: null} when nothing is open.
+When the canvas changed since it was opened or last saved, writes it as Markdown to
+output/ignite/canvas/<time>-<name>.md in your agent folder, headed by its source (the document it
+came from), saved_at, canvas and comments; the canvas then counts as unedited, so the next open no
+longer refuses. Unchanged, it writes nothing. The owner's Save canvas button in /agent does the
+same. A save is the whole canvas: compare it with its source by content, since lines of one
+paragraph come back joined by spaces. Bring the changes into the source yourself, then delete the
+save. The comments' text stays in the canvas.
+Success: exit 0, "saved <file> from <source>" or "nothing to save". --json: {source, saved,
+edited, comments, markdown}, saved null when nothing was written; {source: null} when no
+document is open.
 `,
   runtime: `ignite runtime — move one agent's Ignite records
 

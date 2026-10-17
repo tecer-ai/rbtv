@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { recentDocs, openDocument, openDoc, pullDoc } = require('./docs.js');
+const { recentDocs, openDocument, openDoc, saveDoc, pendingSaves } = require('./docs.js');
 const { Store } = require('./store.js');
 const { main: ignite } = require('./cli.js');
 
@@ -74,8 +74,9 @@ async function main() {
     assert.deepEqual([record.canvasId, record.channel, record.path, record.baseline], ['Fnew', 'C1', 'notes/a.md', 'Alpha one\n\nAlpha two\n']);
   });
 
-  await test('an unedited canvas is replaced by the next document; an edited one is refused until pulled, or forced', async () => {
+  await test('an unedited canvas is replaced by the next document; an edited one is refused until saved, or forced', async () => {
     const { workspace, store } = installation();
+    const home = path.join(workspace, 'agent');
     const slack = canvasSlack();
     await openDoc({ slack, store, workspace, channel: 'C1', path: 'notes/a.md' });
     assert.deepEqual(await openDoc({ slack, store, workspace, channel: 'C1', path: 'notes/b.md' }), { opened: 'notes/b.md', canvasId: 'Fnew' });
@@ -85,9 +86,15 @@ async function main() {
     assert.equal(refused.refused, 'edited');
     assert.equal(refused.path, 'notes/b.md');
     assert.deepEqual(slack.canvases.get('Fnew').lines, ['Beta', 'Henrique added this']);
-    const pulled = await pullDoc({ slack, store });
-    assert.deepEqual(pulled, { path: 'notes/b.md', markdown: 'Beta\n\nHenrique added this\n', edited: true, comments: 1 });
-    assert.equal((await pullDoc({ slack, store })).edited, false);
+    const NOW = Date.UTC(2026, 9, 17, 5, 40, 12);
+    const saved = await saveDoc({ slack, store, home, now: NOW });
+    assert.deepEqual(saved, { source: 'notes/b.md', saved: 'output/ignite/canvas/20261017T054012Z-b.md', edited: true, comments: 1, markdown: 'Beta\n\nHenrique added this\n' });
+    assert.equal(fs.readFileSync(path.join(home, saved.saved), 'utf8'),
+      '---\nsource: "notes/b.md"\nsaved_at: "2026-10-17T05:40:12.000Z"\ncanvas: "Fnew"\ncomments: 1\n---\n\nBeta\n\nHenrique added this\n');
+    assert.deepEqual(pendingSaves(home), [{ file: 'output/ignite/canvas/20261017T054012Z-b.md', source: 'notes/b.md', savedAt: '2026-10-17T05:40:12.000Z' }]);
+    const again = await saveDoc({ slack, store, home, now: NOW + 1000 });
+    assert.deepEqual([again.saved, again.edited], [null, false]);
+    assert.equal(fs.readdirSync(path.join(home, 'output', 'ignite', 'canvas')).length, 1);
     assert.equal((await openDoc({ slack, store, workspace, channel: 'C1', path: 'notes/a.md' })).opened, 'notes/a.md');
     slack.edit('Fnew', 'scribble');
     assert.equal((await openDoc({ slack, store, workspace, channel: 'C1', path: 'notes/b.md', force: true })).opened, 'notes/b.md');
@@ -102,16 +109,17 @@ async function main() {
     assert.deepEqual(slack.canvases.get('Fold'), { title: 'notes/a.md', lines: ['Alpha one', 'Alpha two'] });
   });
 
-  await test('only a Markdown file inside the installation opens, and pull with nothing open is null', async () => {
+  await test('only a Markdown file inside the installation opens, and save with nothing open is null', async () => {
     const { workspace, store } = installation();
     const slack = canvasSlack();
     await assert.rejects(openDoc({ slack, store, workspace, channel: 'C1', path: '../outside.md' }), /not a Markdown file inside the installation/);
     await assert.rejects(openDoc({ slack, store, workspace, channel: 'C1', path: 'notes/c.txt' }), /not a Markdown file/);
     assert.equal(slack.calls.length, 0);
-    assert.equal(await pullDoc({ slack, store }), null);
+    assert.equal(await saveDoc({ slack, store, home: workspace }), null);
+    assert.deepEqual(pendingSaves(workspace), []);
   });
 
-  await test('ignite docs: list, open into the routed channel, refuse an edited canvas, pull it, and refuse an agent without a channel', async () => {
+  await test('ignite docs: list, open into the routed channel, refuse an edited canvas, save it, and refuse an agent without a channel', async () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-docs-cli-'));
     fs.mkdirSync(path.join(workspace, '.rbtv', 'config', 'ignite'), { recursive: true });
     fs.writeFileSync(path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify({
@@ -134,19 +142,21 @@ async function main() {
         return { code: error.exitCode || 1, out: out.join(''), err: error.message };
       }
     };
-    assert.deepEqual(JSON.parse((await run('sara', ['docs', 'list', '--json'])).out), { docs: [{ path: 'plan.md', at: 100 }], open: null });
+    assert.deepEqual(JSON.parse((await run('sara', ['docs', 'list', '--json'])).out), { docs: [{ path: 'plan.md', at: 100 }], open: null, saves: [] });
     const opened = await run('sara', ['docs', 'open', 'plan.md']);
     assert.equal(opened.out, 'opened plan.md in the canvas Fnew of channel C1\n');
     slack.edit('Fnew', 'The plan\nwith an edit');
     const refused = await run('sara', ['docs', 'open', 'plan.md']);
     assert.equal(refused.code, 1);
-    assert.match(refused.err, /^not opened: plan\.md was edited in the canvas since it was opened; bring the edits in first\n.*--force\nNothing changed\.$/s);
-    const pulled = await run('sara', ['docs', 'pull']);
-    assert.equal(pulled.out, 'path: plan.md\nedited: yes\ncomments: 1 (their text stays in the canvas)\n---\nThe plan\n\nwith an edit\n');
+    assert.match(refused.err, /^not opened: plan\.md was edited in the canvas since it was opened or last saved\nsave the edits first with ignite docs save, or replace them with --force\nNothing changed\.$/);
+    const saved = await run('sara', ['docs', 'save']);
+    assert.match(saved.out, /^saved output\/ignite\/canvas\/\d{8}T\d{6}Z-plan\.md from plan\.md \(1 comments; their text stays in the canvas\)\n$/);
+    assert.match((await run('sara', ['docs', 'list'])).out, /saved, not yet brought in: output\/ignite\/canvas\/\d{8}T\d{6}Z-plan\.md \(from plan\.md\)\n$/);
+    assert.equal((await run('sara', ['docs', 'save'])).out, 'nothing to save: the canvas of plan.md is unchanged since it was opened or last saved\n');
     assert.equal((await run('sara', ['docs', 'open', 'plan.md', '--json'])).code, 0);
     assert.match((await run('max', ['docs', 'open', 'plan.md'])).err, /^agent max has no channel of its own/);
     assert.match((await run('sara', ['docs', 'open'])).err, /^docs open requires the path/);
-    assert.match((await run('sara', ['docs', 'drop'])).err, /^docs requires list, open or pull/);
+    assert.match((await run('sara', ['docs', 'drop'])).err, /^docs requires list, open or save/);
   });
 
   console.log(`${passed} passed, ${failures.length} failed`);

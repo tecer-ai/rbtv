@@ -349,6 +349,20 @@ async function main() {
     assert.match(texts(shown), /\*In the canvas:\* `notes\/plan\.md` \(opened just now\)/);
     await panel.handle('interactive', { ...press, actions: [{ action_id: 'agent_doc_open_0', value: '../../etc/passwd.md' }] });
     assert.match(texts(slack.calls.at(-1).args[1]), /That document is not in the list any more\. Nothing changed\./);
+    // Save canvas sits beside the open document; it writes the edited canvas into the agent's folder and lists it.
+    const save = slack.calls.at(-1).args[1].blocks.find((block) => block.accessory?.action_id === 'agent_doc_save');
+    assert.equal(save.accessory.text.text, 'Save canvas');
+    const pressSave = { ...press, actions: [{ action_id: 'agent_doc_save', value: 'notes/plan.md' }] };
+    await panel.handle('interactive', pressSave);
+    assert.match(texts(slack.calls.at(-1).args[1]), /Nothing to save: the canvas of `notes\/plan\.md` is unchanged/);
+    canvas.lines = 'The plan\nHenrique typed this';
+    await panel.handle('interactive', pressSave);
+    const savedView = texts(slack.calls.at(-1).args[1]);
+    assert.match(savedView, /Saved your canvas edits to `output\/ignite\/canvas\/\d{8}T\d{6}Z-plan\.md` in the agent's folder\. Ask the agent to bring them into `notes\/plan\.md`\./);
+    assert.match(savedView, /\*Saved, not yet brought in\* \(1\): ask Fabinho to bring them into their documents\.\n• `output\/ignite\/canvas\/\d{8}T\d{6}Z-plan\.md` from `notes\/plan\.md`, saved just now/);
+    const files = fs.readdirSync(path.join(inst.home, 'output', 'ignite', 'canvas'));
+    assert.equal(files.length, 1);
+    assert.match(fs.readFileSync(path.join(inst.home, 'output', 'ignite', 'canvas', files[0]), 'utf8'), /^---\nsource: "notes\/plan\.md"\n[\s\S]*---\n\nThe plan\s+Henrique typed this\n$/);
   });
 
   await test('a failed Slack call is logged and never thrown', async () => {

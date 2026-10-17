@@ -58,7 +58,7 @@ One row per production file under `core/ignite/` and Slack class method it reach
 | `docs.js` | `canvasCreate` | message | `group.document`: the channel canvas, made with the first document opened |
 | `docs.js` | `canvasEdit` | message | `group.document`: the document replaces what the canvas holds |
 | `docs.js` | `canvasRename` | message | `group.document`: the canvas title becomes the document's path |
-| `docs.js` | `canvasRead` | message | `group.document`: the canvas as it is now, compared with what was opened or last pulled |
+| `docs.js` | `canvasRead` | message | `group.document`: the canvas as it is now, compared with what was opened or last saved, and written to a save |
 
 ## Inbound event
 
@@ -105,7 +105,7 @@ The panel's interactive payloads (Slack: an `interactive` envelope). Ignite read
 |---|---|---|---|
 | button (`block_actions`) | `type` | required | `block_actions` |
 | button | `user.id`, `user.team_id` or `team.id` | required | The owner check |
-| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings`; in the agent panel, `agent_tab_` and the tab, or `agent_doc_open_` and the document's place in the list |
+| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings`; in the agent panel, `agent_tab_` and the tab, `agent_doc_open_` and the document's place in the list, or `agent_doc_save` |
 | button | `actions[0].value` | required for approve, refuse and an agent panel tab or document | The request id, the tab to show, or the document's path |
 | button | `actions[0].action_ts` | required | The key a replayed press is recognised by |
 | button | `trigger_id` | required | Opening the PIN form or the settings form |

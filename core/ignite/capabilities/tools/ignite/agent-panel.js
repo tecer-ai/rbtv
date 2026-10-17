@@ -2,10 +2,12 @@
 
 // The /agent panel: the owner types /agent in an agent's channel, or in the app's direct messages for
 // config.dmAgent, and a modal shows that agent. Tab buttons redraw it in place: Configuration (Overview,
-// Installed, Prompt), State (Board, Timers), Work (Tasks, Sub-agents), Approvals (Payments) and Docs (Recent). It reads the agent's
-// agent.json, prompt.md, board file, its store (schedules, open work, the running turn, progress notes), cast's handle
-// registry and the payment ledger. It changes nothing itself but the channel canvas, when the owner opens a document
-// in it (docs.js); Approve and Refuse on a payment are the payment panel's own buttons, handled there with its PIN.
+// Installed, Prompt), State (Board, Timers), Work (Tasks, Sub-agents), Approvals (Payments) and Docs (Recent).
+// It reads the agent's agent.json, prompt.md, board file, its store (schedules, open work, the running turn,
+// progress notes), cast's handle registry and the payment ledger. It changes nothing itself but the channel
+// canvas, when the owner opens a document in it, and the agent's output/ignite/canvas/, when the owner saves
+// the canvas there (docs.js). Approve and Refuse on a payment are the payment panel's own buttons, handled
+// there with its PIN.
 //
 // API
 // createAgentPanel({ slack, config, store, gate?, log?, launches?, now? }) → { ack(type, payload), handle(type, payload), redraw(view) }
@@ -31,12 +33,13 @@ const { agentHome } = require('./config.js');
 const { boardPath } = require('./board.js');
 const { plain, section, context, esc, modal } = require('./blocks.js');
 const { isOwner, promptBlocks } = require('./payment-panel.js');
-const { recentDocs, openDocument, openDoc } = require('./docs.js');
+const { recentDocs, openDocument, openDoc, saveDoc, pendingSaves } = require('./docs.js');
 
 const COMMAND = '/agent';
 const VIEW = 'agent_panel';
 const ACTION = 'agent_tab';
 const OPEN_DOC = 'agent_doc_open';
+const SAVE_DOC = 'agent_doc_save';
 const TABS = Object.freeze([
   { id: 'overview', group: 'Configuration', label: 'Overview' },
   { id: 'installed', group: 'Configuration', label: 'Installed' },
@@ -230,17 +233,20 @@ const BODY = {
     const open = store && openDocument(store);
     const docs = store && workspace ? recentDocs(store, workspace) : [];
     const head = section(open
-      ? `*In the canvas:* \`${esc(open.path)}\` (opened ${ago(open.openedAt, now)}). Edit it there; ask ${name} to bring your edits into the file.`
+      ? `*In the canvas:* \`${esc(open.path)}\` (opened ${ago(open.openedAt, now)}). Edit it there, then Save canvas to keep your edits as a file ${name} brings into the document.`
       : '*In the canvas:* nothing yet.');
+    if (open && channel) head.accessory = { type: 'button', action_id: SAVE_DOC, value: open.path, text: plain('Save canvas') };
+    const saves = pendingSaves(agent.home).map((one) => `• \`${esc(one.file)}\` from \`${esc(one.source || '?')}\`${one.savedAt ? `, saved ${ago(Date.parse(one.savedAt), now)}` : ''}`);
     const rows = docs.map((doc, i) => ({
       ...section(`\`${esc(doc.path)}\`\n_from a turn ${ago(doc.at, now)}_`),
       ...(channel ? { accessory: { type: 'button', action_id: `${OPEN_DOC}_${i}`, value: doc.path, text: plain('Open in canvas') } } : {}),
     }));
     return [
       head,
+      ...(saves.length ? [section(`*Saved, not yet brought in* (${saves.length}): ask ${name} to bring them into their documents.\n${saves.join('\n')}`)] : []),
       ...(channel ? [] : [context(`Documents open in the agent's own channel canvas; ${name} answers in direct messages, so opening is not available here.`)]),
       ...(rows.length ? rows : [context('No Markdown document in this agent\'s recent turn outputs.')]),
-      context('One canvas per channel: opening a document replaces the one in the canvas, never while it holds edits not yet brought in.'),
+      context('One canvas per channel: opening a document replaces the one in the canvas, never while it holds edits not yet saved.'),
     ];
   },
 };
@@ -297,11 +303,26 @@ function createAgentPanel({ slack, config, store, gate = () => null, log = () =>
     try {
       const result = await openDoc({ slack: slack(), store: db, workspace: config().workspace, channel, path: wanted });
       if (result.opened) return `Opened \`${esc(wanted)}\` in this channel's canvas: <https://app.slack.com/docs/${config().slack.team}/${result.canvasId}|open it>.`;
-      if (result.refused === 'edited') return `Not opened: \`${esc(result.path)}\` was edited in the canvas since it was opened. Ask the agent to bring the edits in, then open again.`;
+      if (result.refused === 'edited') return `Not opened: \`${esc(result.path)}\` was edited in the canvas since it was opened or last saved. Save canvas first, then open again.`;
       return 'Not opened: this channel\'s canvas holds something Ignite did not open. Ask the agent to replace it.';
     } catch (error) {
       note({ action: 'open-failed', message: error.message });
       return `Could not open \`${esc(wanted)}\`: ${esc(error.message)}. Nothing in the canvas changed.`;
+    }
+  }
+
+  // The owner's Save canvas: the edited canvas becomes a file in the agent's output/ignite/canvas/.
+  async function saveFromPanel(slug) {
+    const db = store(slug);
+    if (!db || !channelOf(slug)) return 'Nothing to save here. Nothing changed.';
+    try {
+      const result = await saveDoc({ slack: slack(), store: db, home: agentHome(config(), slug), now: now() });
+      if (!result) return 'No document is open in the canvas. Nothing changed.';
+      if (!result.saved) return `Nothing to save: the canvas of \`${esc(result.source)}\` is unchanged since it was opened or last saved.`;
+      return `Saved your canvas edits to \`${esc(result.saved)}\` in the agent's folder. Ask the agent to bring them into \`${esc(result.source)}\`.${result.comments ? ` The canvas has ${result.comments} comments; their text stays in the canvas.` : ''}`;
+    } catch (error) {
+      note({ action: 'save-failed', message: error.message });
+      return `Could not save the canvas: ${esc(error.message)}. Nothing changed.`;
     }
   }
 
@@ -321,12 +342,16 @@ function createAgentPanel({ slack, config, store, gate = () => null, log = () =>
       }
       const act = payload.actions?.[0];
       if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;
-      if (!act?.action_id?.startsWith(ACTION) && !act?.action_id?.startsWith(OPEN_DOC)) return;
+      if (![ACTION, OPEN_DOC, SAVE_DOC].some((prefix) => act?.action_id?.startsWith(prefix))) return;
       if (!isOwner(config(), payload)) {
         note({ action: 'refused', who: payload.user?.id || null });
         return;
       }
       const slug = payload.view.private_metadata;
+      if (act.action_id === SAVE_DOC) {
+        await slack().updateView(payload.view.id, view(slug, 'docs', await saveFromPanel(slug)));
+        return;
+      }
       if (act.action_id.startsWith(OPEN_DOC)) {
         const notice = await openFromPanel(slug, act.value);
         await slack().updateView(payload.view.id, view(slug, 'docs', notice));
