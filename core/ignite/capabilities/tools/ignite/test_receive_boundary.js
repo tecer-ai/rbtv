@@ -176,11 +176,12 @@ test('a reply leaves through the connector stored on the message, not the Slack 
       message: {
         id: 'whatsapp:5511999990000:5511911112222@s.whatsapp.net:m1', role: 'owner', text: 'hi', files: [],
         team: '5511999990000', channel: '5511911112222@s.whatsapp.net', ts: 'm1', createdAt: 1,
-        metadata: { connector: 'whatsapp', from: '5511911112222', conversation: '5511911112222@s.whatsapp.net' },
+        metadata: { connector: 'whatsapp', account: '5511999990000', from: '5511911112222', conversation: '5511911112222@s.whatsapp.net' },
       },
     });
     store.enqueueOutbox({ id: 'reply:1', conversationKey: '5511999990000:5511911112222@s.whatsapp.net:m1', payload: { text: 'pong' } });
     await deliverPending(store, {
+      listeners: { whatsapp: { account: '5511999990000' } },
       slack: { async postMessage() { throw new Error('slack must not send this'); } },
       messaging: {
         whatsapp: {

@@ -103,6 +103,16 @@ function stampOf(row) {
     const conversation = row.metadata?.conversation || row.channel || row.provenance?.conversation || '';
     return `\nSource: ${connector} account ${account} conversation ${conversation} id ${row.ts} sender ${trust} ${sender}`;
   }
+  // A Slack message whose provenance was stored renders the same neutral source line as every
+  // other connector; only rows stored without provenance keep the plain timestamp wording.
+  const meta = row.metadata || {};
+  if (connector === 'slack' && (meta.account != null || meta.from != null || meta.claimed != null || row.provenance?.account != null)) {
+    const trust = meta.trusted || row.provenance?.trusted ? 'trusted' : 'claimed';
+    const sender = meta.claimed || meta.from || row.provenance?.claimed || '';
+    const account = meta.account ?? row.provenance?.account ?? '';
+    const conversation = meta.conversation || row.channel || row.provenance?.conversation || '';
+    return `\nSource: slack account ${account} conversation ${conversation} id ${row.ts} sender ${trust} ${sender}`;
+  }
   return `\nSlack timestamp of this message: ${row.ts}`;
 }
 

@@ -474,6 +474,33 @@ test('a reply text over 12,000 characters is delivered as a file through the sha
   assert.match(slack.calls[0], /^upload .*message\.md$/);
 });
 
+// A mail conversation answers only through the mailbox it arrived on: mail addresses are compared
+// whole, so two mailboxes whose digits agree are still two accounts.
+test('a mail conversation is never sent through another mailbox with the same digits', async (store) => {
+  const key = 'google:a1@x.com:t1:t1';
+  store.acceptOwnerInput({
+    key, agent: 'sara', workspace: 'a1@x.com', channel: 't1', rootTs: 't1', activated: true,
+    message: {
+      id: 'google:a1@x.com:t1:t1', role: 'owner', text: 'hi', files: [], team: 'a1@x.com', channel: 't1', ts: 't1', createdAt: 1,
+      metadata: { connector: 'google', account: 'a1@x.com', from: 'owner@x.com', conversation: 't1' },
+    },
+  });
+  const sent = [];
+  const google = {
+    async 'message.send'(input) { sent.push(input); return { conversation: 't1', id: `m${sent.length}`, thread: 't1' }; },
+    async 'message.file'() { throw new Error('no file'); },
+  };
+  store.enqueueOutbox({ id: 'other', conversationKey: key, payload: { text: 'wrong mailbox' } });
+  const other = await deliverPending(store, { messaging: { google }, listeners: { google: { mailbox: 'b1@y.com' } } });
+  assert.equal(other[0].delivered, false);
+  assert.equal(other[0].stopped, true);
+  assert.equal(sent.length, 0);
+  store.enqueueOutbox({ id: 'same', conversationKey: key, payload: { text: 'right mailbox' } });
+  const same = await deliverPending(store, { messaging: { google }, listeners: { google: { mailbox: 'A1@X.com' } } });
+  assert.equal(same.find((row) => row.id === 'same').delivered, true);
+  assert.deepEqual(sent.map((input) => input.text), ['right mailbox']);
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const store = new Store(':memory:');

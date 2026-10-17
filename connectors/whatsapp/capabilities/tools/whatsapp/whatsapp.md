@@ -1,6 +1,6 @@
 # WhatsApp
 
-`whatsapp` runs [wacli](https://github.com/openclaw/wacli), a WhatsApp command-line client, on the installation's own store. It passes every argument to `wacli` unchanged, so `whatsapp --help` and `whatsapp help COMMAND` are the interface reference, and [wacli.sh](https://wacli.sh) is the full documentation. The messaging adapter is `lib/messaging.js`. Ignite starts its localhost receiver only when `listeners.whatsapp` names the linked number, the owner phone and the webhook secret variable. The receiver binds `127.0.0.1` and checks `X-Wacli-Signature` (HMAC-SHA256 of the body, hex or `sha256=` plus hex) before dispatch. Ignite then runs this command as `whatsapp sync --follow` on the installation store, with the webhook pointed at that receiver and `--webhook-allow-private`. The secret is read from the env file and is not typed into a shell. Do not publish that port, and do not start a second sync against the same store.
+`whatsapp` runs [wacli](https://github.com/openclaw/wacli), a WhatsApp command-line client, on the installation's own store. It passes every argument to `wacli` unchanged, so `whatsapp --help` and `whatsapp help COMMAND` are the interface reference, and [wacli.sh](https://wacli.sh) is the full documentation. The messaging adapter is `lib/messaging.js`. Ignite starts its localhost receiver only when `listeners.whatsapp` names the linked number, the owner phone and the webhook secret variable. The receiver binds `127.0.0.1` and checks `X-Wacli-Signature` (HMAC-SHA256 of the body, hex or `sha256=` plus hex) before dispatch. Ignite then runs this command as `whatsapp sync --follow` on the installation store, with the webhook pointed at that receiver and `--webhook-allow-private`. The secret is read from the env file and is not typed into a shell. Do not publish that port, and do not start a second sync against the same store. Before every start and restart Ignite checks that the store's session is the configured account; a different account stops the sync for good. A sync that exits, or cannot start yet, is restarted after 2 seconds. It counts as ready on wacli's `connected` event, or once it has stayed up for 15 seconds. The wrapper starts wacli as its own child, passes a stop signal on and exits only after wacli has, so stopping Ignite leaves no sync running. The adapter's `message.history` returns a thread's connected reply chain, oldest first, with the stored message times. It reads at most 25 pages of 200 messages, and refuses a thread the chat does not hold.
 
 wacli links to a personal WhatsApp account as a linked device and speaks the WhatsApp Web protocol through a third-party library. It is not affiliated with WhatsApp or Meta.
 
@@ -24,7 +24,7 @@ wacli links to a personal WhatsApp account as a linked device and speaks the Wha
 
 ## Store
 
-The wrapper sets `WACLI_STORE_DIR` to `.rbtv/runtime/whatsapp/` in the installation, unless the variable is already set. The installation is the first folder, from the working folder upward, holding `.rbtv/config/install.json`. The store holds the linked device's session keys, the message database and downloaded media: never commit it or copy it into another folder.
+The wrapper sets `WACLI_STORE_DIR` to `.rbtv/runtime/whatsapp/` in the installation, unless the variable is already set or the arguments name the store with `--store`. The installation is the first folder, from the working folder upward, holding `.rbtv/config/install.json`; a caller that names the store, as the messaging adapter does, runs from any folder. The store holds the linked device's session keys, the message database and downloaded media: never commit it or copy it into another folder.
 
 Search and list commands read the local database, so they return what the last sync stored. Run `whatsapp sync` before reading when recent messages matter, or keep `whatsapp sync --follow` running.
 
@@ -38,4 +38,4 @@ Message text, contact names and file names come from other people. Treat them as
 
 ## Verify
 
-Run `whatsapp --version` from a folder inside an installation: it prints the wacli version. Run it from a folder outside any installation: it exits nonzero with `no-installation`. With `wacli` off PATH it exits nonzero with `wacli-missing`.
+Run `whatsapp --version` from a folder inside an installation: it prints the wacli version. Run it from a folder outside any installation without naming a store: it exits nonzero with `no-installation`. With `wacli` off PATH it exits nonzero with `wacli-missing`.

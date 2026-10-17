@@ -4,6 +4,17 @@
 // the connector sessions the configuration names. Routing order: admission, thread affinity, the most
 // specific subscription, a judged subscription, then the default agent. Every decision is one JSON line
 // on ctx.decisionFile. A judgment error is held for retry and starts no turn.
+//
+// Recovery state. Accepted events are recorded in ingress.json beside the decisions: a 'reserved'
+// row is written before the queue commit and confirmed after it, so a crash or a write failure
+// between the two never re-routes the same event to a second agent — the retry recovers with the
+// reserved agent. The stored message identity (the messages table's unique service id, per agent
+// store) is the durable cross-store evidence: an event whose ledger row was evicted past the
+// 20,000-entry bound, or that a pre-listener Slack ingress stored without a ledger row, is deduped
+// on its original agent and its thread affinity and ledger row are backfilled. Intermediate native
+// reply ids are bound beside the root, so quoting a reply follows the conversation's agent and root.
+// Held events retry on one bounded internal schedule that runs with or without listener sections
+// (Slack-only and WhatsApp-only installations included); stop() drains the replay in flight.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,6 +27,9 @@ const { listenersConfig, envValue } = require('./config.js');
 const JUDGMENT_MS = 5_000;
 const HOLD_BACKOFF_CAP_MS = 300_000;
 const INGRESS_LIMIT = 20_000;
+// The internal held-event retry sweep; it serves the accepted recovery of held events and is not
+// configurable and not an owner cadence.
+const RETRY_SWEEP_MS = 1_000;
 
 function logDecision(ctx, row) {
   const line = { at: typeof ctx.now === 'function' ? ctx.now() : Date.now(), ...row };
@@ -97,11 +111,12 @@ function hold(ctx, event, reason) {
     const rows = readHold(ctx).filter((row) => eventKey(row.event) !== eventKey(event));
     const prior = readHold(ctx).find((row) => eventKey(row.event) === eventKey(event));
     const attempts = (prior?.attempts || 0) + 1;
+    const now = typeof ctx.now === 'function' ? ctx.now() : Date.now();
     rows.push({
       id: eventKey(event),
       reason,
       attempts,
-      nextAt: Date.now() + Math.min(HOLD_BACKOFF_CAP_MS, 1000 * (2 ** Math.min(attempts, 8))),
+      nextAt: now + Math.min(HOLD_BACKOFF_CAP_MS, 1000 * (2 ** Math.min(attempts, 8))),
       event,
     });
     writeHold(ctx, rows);
@@ -127,19 +142,43 @@ function acceptedIngress(ctx, event) {
   return body?.accepted?.[eventKey(event)] || null;
 }
 
-function recordIngress(ctx, event, agent) {
+function recordIngress(ctx, event, agent, state) {
   const file = ingressPath(ctx);
-  if (!file) return;
-  withLock(file, () => {
+  if (!file) return null;
+  return withLock(file, () => {
     const body = readJson(file, { accepted: {} }) || { accepted: {} };
     if (!body.accepted || typeof body.accepted !== 'object') body.accepted = {};
-    body.accepted[eventKey(event)] = { agent, at: Date.now() };
-    const keys = Object.keys(body.accepted);
-    if (keys.length > INGRESS_LIMIT) {
-      for (const key of keys.slice(0, keys.length - INGRESS_LIMIT)) delete body.accepted[key];
-    }
+    const key = eventKey(event);
+    body.accepted[key] = state ? { agent, at: Date.now(), state } : { agent, at: Date.now() };
+    trimIngress(body);
     atomicWrite(file, JSON.stringify(body));
+    return body.accepted[key];
   });
+}
+
+// Reserves the routing decision durably before the queue commit. An existing row (a reservation
+// or a confirmed accept, from this or an earlier process) is returned and never overwritten: an
+// event is never switched to a second agent after any recorded accept.
+function reserveIngress(ctx, event, agent) {
+  const file = ingressPath(ctx);
+  if (!file) return null;
+  return withLock(file, () => {
+    const body = readJson(file, { accepted: {} }) || { accepted: {} };
+    if (!body.accepted || typeof body.accepted !== 'object') body.accepted = {};
+    const key = eventKey(event);
+    if (body.accepted[key]?.agent) return body.accepted[key];
+    body.accepted[key] = { agent, at: Date.now(), state: 'reserved' };
+    trimIngress(body);
+    atomicWrite(file, JSON.stringify(body));
+    return null;
+  });
+}
+
+function trimIngress(body) {
+  const keys = Object.keys(body.accepted);
+  if (keys.length > INGRESS_LIMIT) {
+    for (const key of keys.slice(0, keys.length - INGRESS_LIMIT)) delete body.accepted[key];
+  }
 }
 
 function bindThread(ctx, row) {
@@ -152,6 +191,24 @@ function bindThread(ctx, row) {
     if (!exists) rows.push(row);
     atomicWrite(ctx.threadFile, JSON.stringify(rows));
   });
+}
+
+// Binds the conversation's root and the event's own native id (an intermediate reply id
+// included), each pointing at the conversation's root, so a later quote of any stored message
+// follows the original agent and root.
+function bindEvent(ctx, event, agent, root) {
+  const thread = root || event.thread || event.id;
+  if (String(thread).includes(':')) return;
+  const base = {
+    connector: event.connector,
+    account: event.account,
+    conversation: event.conversation || event.group,
+    agent,
+    root: thread,
+    via: 'inbound',
+  };
+  bindThread(ctx, { ...base, thread });
+  if (event.id && event.id !== thread) bindThread(ctx, { ...base, thread: event.id });
 }
 
 function ruleProblem(rule) {
@@ -189,10 +246,19 @@ function loadRules(ctx) {
   return { rules: parsed, error: null, held: false };
 }
 
+// One schema (ruleProblem) guards the primary file, the in-memory copy and the last-good cache.
+function validRules(rows) {
+  if (!Array.isArray(rows)) return null;
+  for (const rule of rows) {
+    if (ruleProblem(rule)) return null;
+  }
+  return rows;
+}
+
 function recoverRules(ctx, message) {
-  const memory = ctx._rules;
-  const saved = readJson(lastGoodPath(ctx), null);
-  const rules = Array.isArray(memory) ? memory : (Array.isArray(saved) ? saved : null);
+  const memory = validRules(ctx._rules);
+  const saved = validRules(readJson(lastGoodPath(ctx), null));
+  const rules = memory || saved;
   return { rules: rules || [], error: message, held: !rules };
 }
 
@@ -241,18 +307,38 @@ function agentNames(ctx, rules) {
   return [...names];
 }
 
+// The agent an outbound message of this conversation belongs to: the outbox row the service
+// confirmed for the thread id, with the conversation's root. Connector- and account-qualified.
 function affinityFromStore(store, event, conversation, thread) {
-  if (!store?.db) return false;
-  if (event.connector === 'slack') {
-    return Boolean(store.db.prepare(`SELECT o.id FROM outbox o
-      JOIN conversations c ON c.key = o.conversation_key
-      WHERE o.state='delivered' AND c.workspace=? AND o.channel=? AND o.ts=?
-        AND c.key NOT LIKE 'google:%' AND c.key NOT LIKE 'whatsapp:%'`).get(event.account, conversation, thread));
-  }
-  return Boolean(store.db.prepare(`SELECT o.id FROM outbox o
+  if (!store?.db) return null;
+  const isSlack = event.connector === 'slack';
+  const sql = `SELECT c.root_ts AS root FROM outbox o
     JOIN conversations c ON c.key = o.conversation_key
-    WHERE o.state='delivered' AND c.workspace=? AND o.channel=? AND o.ts=? AND c.key LIKE ?`)
-    .get(event.account, conversation, thread, `${event.connector}:%`));
+    WHERE o.state='delivered' AND c.workspace=? AND o.channel=? AND o.ts=?
+      AND c.key ${isSlack ? "NOT LIKE 'google:%' AND c.key NOT LIKE 'whatsapp:%'" : 'LIKE ?'}`;
+  const row = isSlack
+    ? store.db.prepare(sql).get(event.account, conversation, thread)
+    : store.db.prepare(sql).get(event.account, conversation, thread, `${event.connector}:%`);
+  return row || null;
+}
+
+// The agent that stored a message with this native id, with its conversation's root. This is the
+// durable cross-store evidence: the messages table's unique service id outlives the ingress
+// ledger's 20,000-entry bound and covers events stored before the listener kept a ledger.
+function messageOwnerInStore(store, event, id) {
+  if (!store?.db || !id) return null;
+  if (event.connector === 'slack') {
+    return store.db.prepare(`SELECT c.agent AS agent, c.root_ts AS root FROM messages m
+      JOIN conversations c ON c.key = m.conversation_key
+      WHERE m.team=? AND m.channel=? AND m.ts=?
+        AND COALESCE(json_extract(m.metadata, '$.connector'), 'slack')='slack'
+        AND c.key NOT LIKE 'google:%' AND c.key NOT LIKE 'whatsapp:%'`).get(event.account, event.conversation || event.group, id) || null;
+  }
+  return store.db.prepare(`SELECT c.agent AS agent, c.root_ts AS root FROM messages m
+    JOIN conversations c ON c.key = m.conversation_key
+    WHERE m.team=? AND m.channel=? AND m.ts=?
+      AND COALESCE(json_extract(m.metadata, '$.connector'), 'slack')=? AND c.key LIKE ?`)
+    .get(event.account, event.conversation || event.group, id, event.connector, `${event.connector}:%`) || null;
 }
 
 function affinity(event, ctx, rules) {
@@ -263,14 +349,32 @@ function affinity(event, ctx, rules) {
   if (Array.isArray(threads)) {
     for (const row of threads) {
       if (row.connector === event.connector && row.account === event.account
-        && row.conversation === conversation && row.thread === thread && row.agent) return row.agent;
+        && row.conversation === conversation && row.thread === thread && row.agent) {
+        return { agent: row.agent, root: row.root || thread };
+      }
     }
   }
   if (typeof ctx.openStore !== 'function') return null;
   for (const slug of agentNames(ctx, rules)) {
     let store;
     try { store = ctx.openStore(slug); } catch { continue; }
-    if (affinityFromStore(store, event, conversation, thread)) return slug;
+    const delivered = affinityFromStore(store, event, conversation, thread);
+    if (delivered) return { agent: slug, root: delivered.root || thread };
+    // A quote of an intermediate reply names that reply's native id, not the root.
+    const quoted = messageOwnerInStore(store, event, thread);
+    if (quoted?.agent) return { agent: quoted.agent, root: quoted.root || thread };
+  }
+  return null;
+}
+
+// Where this event's own message identity already lives, if anywhere.
+function findEventOwner(ctx, event, rules) {
+  if (typeof ctx.openStore !== 'function') return null;
+  for (const slug of agentNames(ctx, rules)) {
+    let store;
+    try { store = ctx.openStore(slug); } catch { continue; }
+    const hit = messageOwnerInStore(store, event, event.id);
+    if (hit?.agent) return { agent: hit.agent, root: hit.root || null };
   }
   return null;
 }
@@ -369,13 +473,16 @@ function provenanceOf(event, account, channel) {
   };
 }
 
-async function accept(event, agent, ctx, step) {
+async function accept(event, agent, ctx, step, options = {}) {
   if (typeof ctx.openStore !== 'function') throw new Error('openStore required');
   const store = await ctx.openStore(agent);
   const account = keyPart(event.account, 'account');
   const channel = keyPart(event.conversation || event.group, 'conversation');
   const ts = keyPart(event.id, 'id');
-  const rootTs = event.thread && event.thread !== event.id ? keyPart(event.thread, 'thread') : ts;
+  const boundRoot = options.boundRoot && !String(options.boundRoot).includes(':') ? options.boundRoot : null;
+  const rootTs = event.thread && event.thread !== event.id
+    ? (boundRoot ? keyPart(boundRoot, 'thread') : keyPart(event.thread, 'thread'))
+    : (boundRoot || ts);
   const key = conversationKey(account, channel, rootTs, event.connector);
   const provenance = provenanceOf(event, account, channel);
   const message = {
@@ -415,6 +522,14 @@ async function accept(event, agent, ctx, step) {
       provenance,
     },
   };
+  // The routing decision is durable before the queue commit: an interruption between the two
+  // recovers with this agent, never a second one. A row another agent already owns is final.
+  const reserved = reserveIngress(ctx, event, agent);
+  if (reserved && reserved.agent !== agent) {
+    logDecision(ctx, { step: 'admission', agent: reserved.agent, reason: 'duplicate', detail: 'reserved', ...decisionBase(event) });
+    bindEvent(ctx, event, reserved.agent, null);
+    return { ignored: 'duplicate', agent: reserved.agent, key, queued: false };
+  }
   let result;
   const threaded = Boolean(event.thread && event.thread !== event.id && event.group);
   if (threaded && event.connector === 'slack') {
@@ -443,9 +558,11 @@ async function accept(event, agent, ctx, step) {
     }
   }
   if (!result) result = await store.acceptOwnerInput(input);
-  if (result?.duplicate) return { ignored: 'duplicate', agent, key, queued: false };
-  bindThread(ctx, { connector: event.connector, account, conversation: channel, thread: rootTs, agent, via: 'inbound' });
+  // A duplicate is still backfilled: the affinity binding and the confirmed ledger row are
+  // written (or rewritten) so a later rule change cannot re-route this event.
+  bindEvent(ctx, event, agent, rootTs);
   recordIngress(ctx, event, agent);
+  if (result?.duplicate) return { ignored: 'duplicate', agent, key, queued: false };
   if (event.connector === 'slack') {
     live.received(store, { conversationKey: key, channel, ts }, ctx.log);
   }
@@ -483,13 +600,21 @@ async function dispatch(event, ctx) {
     return { queued: false, agent: null, ignored: reason === 'non-owner' ? 'non-owner' : 'unverified' };
   }
   const prior = acceptedIngress(ctx, event);
-  if (prior) {
+  if (prior && prior.state !== 'reserved') {
     if (typeof ctx.openStore === 'function') {
       try { await ctx.openStore(prior.agent); } catch { /* the ledger still names the agent */ }
     }
     logDecision(ctx, { step: 'admission', agent: prior.agent, reason: 'duplicate', ...base });
+    bindEvent(ctx, event, prior.agent, null);
     releaseHold(ctx, event);
     return { queued: false, agent: prior.agent, ignored: 'duplicate' };
+  }
+  if (prior) {
+    // A reservation an interruption left behind: finish the accept with the reserved agent.
+    logDecision(ctx, { step: 'recovery', agent: prior.agent, reason: 'reserved', ...base });
+    const recovered = await accept(event, prior.agent, ctx, 'recovery');
+    if (recovered.queued || recovered.ignored === 'duplicate') releaseHold(ctx, event);
+    return recovered;
   }
   const loaded = loadRules(ctx);
   if (!loaded.error) ctx._rules = loaded.rules;
@@ -501,11 +626,21 @@ async function dispatch(event, ctx) {
     }
   }
   const rules = loaded.rules;
+  // Cross-store evidence: the event's own message identity, already stored under an agent
+  // (an evicted ledger row, or a pre-listener Slack ingress), closes dedup for good.
+  const evidence = findEventOwner(ctx, event, rules);
+  if (evidence) {
+    logDecision(ctx, { step: 'admission', agent: evidence.agent, reason: 'duplicate', detail: 'store-evidence', ...base });
+    bindEvent(ctx, event, evidence.agent, evidence.root);
+    recordIngress(ctx, event, evidence.agent);
+    releaseHold(ctx, event);
+    return { queued: false, agent: evidence.agent, ignored: 'duplicate' };
+  }
   const threadAgent = affinity(event, ctx, rules);
   if (threadAgent) {
-    logDecision(ctx, { step: 'affinity', agent: threadAgent, reason: 'thread', ...base });
-    const accepted = await accept(event, threadAgent, ctx, 'affinity');
-    if (accepted.queued) releaseHold(ctx, event);
+    logDecision(ctx, { step: 'affinity', agent: threadAgent.agent, reason: 'thread', ...base });
+    const accepted = await accept(event, threadAgent.agent, ctx, 'affinity', { boundRoot: threadAgent.root });
+    if (accepted.queued || accepted.ignored === 'duplicate') releaseHold(ctx, event);
     return accepted;
   }
   const deterministic = rules.filter((rule) => !rule.judge && matches(rule, event));
@@ -517,7 +652,7 @@ async function dispatch(event, ctx) {
     }
     logDecision(ctx, { step: 'subscription', agent: picked.agent, reason: picked.reason, ...base });
     const accepted = await accept(event, picked.agent, ctx, 'subscription');
-    if (accepted.queued) releaseHold(ctx, event);
+    if (accepted.queued || accepted.ignored === 'duplicate') releaseHold(ctx, event);
     return accepted;
   }
   const judged = await judgedRoute(event, rules, ctx);
@@ -534,7 +669,7 @@ async function dispatch(event, ctx) {
   if (judged.agent) {
     logDecision(ctx, { step: 'judged', agent: judged.agent, reason: judged.reason, ...base });
     const accepted = await accept(event, judged.agent, ctx, 'judged');
-    if (accepted.queued) releaseHold(ctx, event);
+    if (accepted.queued || accepted.ignored === 'duplicate') releaseHold(ctx, event);
     return accepted;
   }
   const agent = defaultAgent(event, ctx);
@@ -546,7 +681,7 @@ async function dispatch(event, ctx) {
   }
   logDecision(ctx, { step: 'default', agent, reason: event.connector === 'google' ? 'mail' : (event.group ? 'route' : 'dm'), ...base });
   const accepted = await accept(event, agent, ctx, 'default');
-  if (accepted.queued) releaseHold(ctx, event);
+  if (accepted.queued || accepted.ignored === 'duplicate') releaseHold(ctx, event);
   return accepted;
 }
 
@@ -597,8 +732,32 @@ async function start(ctx) {
     }
   }
   if (ctx.transports) return { stop() { for (const fn of stops) fn(); } };
+  // One bounded internal retry schedule for held events, independent of every listener: a
+  // Slack-only or WhatsApp-only installation, or one with no listeners section at all, recovers
+  // a due held event without a Gmail poll. stop() drains the replay in flight.
+  const retryAbort = new AbortController();
+  let replayChain = Promise.resolve();
+  const sweep = () => {
+    replayChain = replayChain.then(() => replayHeld(ctx))
+      .catch((error) => logDecision(ctx, { step: 'replay', agent: null, reason: error.message }));
+    return replayChain;
+  };
+  const retryTimer = setInterval(() => { if (!retryAbort.signal.aborted) sweep(); }, RETRY_SWEEP_MS);
+  if (typeof retryTimer.unref === 'function') retryTimer.unref();
+  stops.push(async () => {
+    clearInterval(retryTimer);
+    retryAbort.abort();
+    await replayChain;
+  });
   const sections = listenersConfig(ctx.config);
-  if (!sections) return { async stop() {} };
+  if (!sections) {
+    try { await sweep(); } catch (error) {
+      logDecision(ctx, { step: 'replay', agent: null, reason: error.message });
+    }
+    return {
+      async stop() { for (const fn of stops) await fn(); },
+    };
+  }
   const abort = new AbortController();
   let chain = Promise.resolve();
   if (sections.whatsapp) {
@@ -653,7 +812,16 @@ async function start(ctx) {
         spawn: ctx.spawn,
         signal: abort.signal,
         onEvent: (neutral) => dispatch(neutral, ctx),
-      })).catch((error) => logDecision(ctx, { step: 'connection', connector: 'google', agent: null, reason: error.message }));
+      })).then((result) => {
+        // A mail the connector could not read never reached an agent: each failed read, and the
+        // drop after the connector's last attempt, is a decision line.
+        for (const row of result?.failures || []) {
+          logDecision(ctx, { step: 'mail-read-failed', connector: 'google', agent: null, id: row.id, attempts: row.attempts, reason: row.lastError });
+        }
+        for (const row of result?.dropped || []) {
+          logDecision(ctx, { step: 'mail-dropped', connector: 'google', agent: null, id: row.id, attempts: row.attempts, reason: row.lastError });
+        }
+      }).catch((error) => logDecision(ctx, { step: 'connection', connector: 'google', agent: null, reason: error.message }));
       return chain;
     };
     const timer = setInterval(() => { if (!abort.signal.aborted) poll(); }, sections.google.pollMs);
@@ -667,7 +835,7 @@ async function start(ctx) {
   } else if (ctx.config?.listeners?.google) {
     logDecision(ctx, { step: 'connection', connector: 'google', agent: null, reason: 'poll cadence is not configured' });
   }
-  try { await replayHeld(ctx); } catch (error) {
+  try { await sweep(); } catch (error) {
     logDecision(ctx, { step: 'replay', agent: null, reason: error.message });
   }
   return {

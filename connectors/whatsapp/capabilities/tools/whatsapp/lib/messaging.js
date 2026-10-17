@@ -17,6 +17,9 @@ const HOST = '127.0.0.1';
 const MAX_BODY = 64 * 1024;
 const COMMAND_MS = 60_000;
 const READY_MS = 15_000;
+const HISTORY_PAGE = 200;
+const HISTORY_MAX_PAGES = 25;
+const RESTART_MS = 2_000;
 
 function fail(reason, message) {
   const error = new Error(message);
@@ -224,37 +227,201 @@ function confirmed(data, to, thread) {
   return { conversation: data.to || data.ChatJID || to, id: String(id), thread: thread || null };
 }
 
-function supervise({ store, secret, port, account, spawn: spawnImpl, onLog } = {}) {
+function supervise({ store, secret, port, account, spawn: spawnImpl, onLog, onState } = {}) {
   if (!store || !secret || !port || !account) throw new Error('owner identity is not configured');
   let child = null;
   let stopping = false;
   let timer = null;
+  let state = 'starting';
+  let stableTimer = null;
+  let readyResolve = null;
+  const ready = new Promise((resolve) => { readyResolve = resolve; });
   const log = (reason) => { if (typeof onLog === 'function') onLog(reason); };
-  const args = ['--store', store, 'sync', '--follow', '--webhook', `http://${HOST}:${port}/whatsapp`, '--webhook-secret', secret, '--webhook-allow-private'];
+  const settle = (next) => {
+    if (state === next) return;
+    state = next;
+    if (typeof onState === 'function') onState(next);
+    if (next === 'ready' || next === 'failed' || next === 'stopped') readyResolve();
+  };
+  const args = ['--store', store, '--events', 'sync', '--follow', '--webhook', `http://${HOST}:${port}/whatsapp`, '--webhook-secret', secret, '--webhook-allow-private'];
+  function killTree(signal = 'SIGTERM') {
+    if (!child?.pid) return;
+    try {
+      if (process.platform === 'win32') child.kill(signal);
+      else process.kill(-child.pid, signal); // the wrapper leads its own group, so wacli dies with it
+    } catch { /* already gone */ }
+  }
   function startChild() {
-    child = launch(args, spawnImpl);
+    settle('starting');
+    // The session is revalidated on every (re)start: a respawn after the store's account changed must
+    // not deliver events for the configured account from another session.
+    sessionStatus({ store, spawn: spawnImpl }).then((status) => {
+      const phone = status.phone || digits(status.linked_jid);
+      if (!status.authenticated || !phone || digits(phone) !== digits(account)) {
+        throw new Error('whatsapp session does not match the configured account');
+      }
+      if (!stopping) spawnSync();
+    }, (error) => {
+      if (stopping) return;
+      log(`whatsapp session could not be confirmed: ${error.message}`);
+      scheduleRestart();
+    }).catch((error) => {
+      // An account mismatch is permanent: never supervise another account's session.
+      log(error.message);
+      settle('failed');
+    });
+  }
+  function spawnSync() {
+    child = launch(args, spawnImpl, { detached: process.platform !== 'win32' });
+    let err = '';
+    child.stderr.on('data', (chunk) => {
+      err = (err + chunk).slice(-4096);
+      for (const line of String(chunk).split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event.event === 'connected') settle('ready');
+          if (event.event === 'logged_out') log('whatsapp session logged out');
+        } catch { /* not a lifecycle event line */ }
+      }
+    });
     child.stdout.on('data', () => {});
-    child.stderr.on('data', () => {});
-    child.on('error', (error) => log(error.message));
-    child.on('exit', (code) => {
+    child.on('error', (error) => {
       child = null;
       if (stopping) return;
-      log(`whatsapp sync exited ${code}`);
-      timer = setTimeout(startChild, 2000);
-      if (typeof timer.unref === 'function') timer.unref();
+      log(`whatsapp sync did not start: ${error.message}`);
+      scheduleRestart();
     });
+    child.on('exit', (code) => {
+      child = null;
+      if (stableTimer) clearTimeout(stableTimer);
+      if (stopping) return;
+      log(`whatsapp sync exited ${code}${err ? `: ${err.trim().split(/\r?\n/).pop()}` : ''}`);
+      scheduleRestart();
+    });
+    // wacli reports readiness as an NDJSON lifecycle event; a process still alive past this window is
+    // treated as running (connected or reconnecting), never as failed.
+    stableTimer = setTimeout(() => { if (child && !stopping) settle('ready'); }, READY_MS);
+    if (typeof stableTimer.unref === 'function') stableTimer.unref();
+  }
+  function scheduleRestart() {
+    settle('failed');
+    if (stopping) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(startChild, RESTART_MS);
+    if (typeof timer.unref === 'function') timer.unref();
   }
   startChild();
   return {
+    whenReady: () => ready,
+    state: () => state,
     async stop() {
       stopping = true;
+      settle('stopped');
       if (timer) clearTimeout(timer);
+      if (stableTimer) clearTimeout(stableTimer);
       if (!child) return;
-      const exited = new Promise((resolve) => child.once('exit', () => resolve()));
-      child.kill();
-      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, READY_MS))]);
+      const drained = new Promise((resolve) => { child.once('exit', () => resolve()); });
+      killTree('SIGTERM');
+      const force = setTimeout(() => killTree('SIGKILL'), READY_MS);
+      if (typeof force.unref === 'function') force.unref();
+      await Promise.race([drained, new Promise((resolve) => setTimeout(resolve, READY_MS))]);
+      clearTimeout(force);
     },
   };
+}
+
+// One page of a chat's messages, newest first, older than beforeSecond (a unix second, re-included
+// whole: wacli's --before is exclusive and one second can hold several messages).
+async function historyPage(conversation, beforeSecond, ctx) {
+  const args = [...globalArgs(ctx), '--json', 'messages', 'list', '--chat', conversation, '--limit', String(HISTORY_PAGE)];
+  if (beforeSecond != null) args.push('--before', new Date((beforeSecond + 1) * 1000).toISOString());
+  const data = envelope(await run(args, ctx.spawn));
+  return Array.isArray(data.messages) ? data.messages : [];
+}
+
+const secondOf = (row) => {
+  const ms = Date.parse(row.Timestamp);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+};
+
+// The root of the reply chain the id belongs to, or null while ancestry continues past what is fetched.
+function rootOf(rows, id) {
+  let current = rows.get(String(id));
+  if (!current) return null;
+  const walked = new Set([String(id)]);
+  while (current.quoted_msg_id && !walked.has(String(current.quoted_msg_id))) {
+    const parent = rows.get(String(current.quoted_msg_id));
+    if (!parent) return null;
+    walked.add(String(parent.MsgID));
+    current = parent;
+  }
+  return current;
+}
+
+// The chat's messages this history needs, paged newest-first until the thread's root and everything
+// down to it is in hand (a root older than one page is reachable), bounded by HISTORY_MAX_PAGES.
+async function chatHistory(conversation, thread, ctx) {
+  const rows = new Map();
+  let before = null;
+  for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+    const batch = await historyPage(conversation, before, ctx);
+    if (!batch.length) break;
+    let fresh = 0;
+    for (const row of batch) {
+      if (row.MsgID == null || rows.has(String(row.MsgID))) continue;
+      rows.set(String(row.MsgID), row);
+      fresh += 1;
+    }
+    const oldest = Math.min(...batch.map(secondOf).filter((value) => value != null));
+    if (!Number.isFinite(oldest)) break; // no row names a time the next page could page from
+    if (thread) {
+      const root = rootOf(rows, thread);
+      if (root && oldest <= secondOf(root)) break;
+    }
+    if (!fresh) break; // no progress: one second holds more than a page
+    before = oldest;
+  }
+  return rows;
+}
+
+function historyEvents(conversation, thread, rows, ctx) {
+  const owner = ctx.owner || ctx.section?.owner || '';
+  const account = ctx.account || '';
+  const event = (row) => eventOf({
+    id: row.MsgID, chat: row.ChatJID || conversation, sender: row.SenderJID || '', text: row.Text || '',
+    fromMe: row.FromMe, at: Date.parse(row.Timestamp) || Date.now(), replyTo: row.quoted_msg_id || null,
+  }, { owner, account });
+  if (!thread) {
+    // The whole chat, oldest first (wacli pages newest first; one Map keeps first-seen order).
+    return [...rows.values()].map(event).sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
+  }
+  const root = rootOf(rows, thread);
+  if (!root) {
+    const error = fail(null, `whatsapp answered thread_not_found for ${thread} in ${conversation}`);
+    error.code = 'thread';
+    throw error;
+  }
+  // The connected reply tree: the root and every message whose reply chain reaches it, oldest first
+  // (a tie keeps a parent before its child).
+  const children = new Map();
+  for (const row of rows.values()) {
+    const parent = row.quoted_msg_id ? String(row.quoted_msg_id) : null;
+    if (!parent || !rows.has(parent)) continue;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(row);
+  }
+  const depth = new Map([[String(root.MsgID), 0]]);
+  const kept = [root];
+  for (let at = 0; at < kept.length; at += 1) {
+    const current = kept[at];
+    for (const child of children.get(String(current.MsgID)) || []) {
+      if (depth.has(String(child.MsgID))) continue;
+      depth.set(String(child.MsgID), depth.get(String(current.MsgID)) + 1);
+      kept.push(child);
+    }
+  }
+  return kept.map(event).sort((a, b) => a.at - b.at || depth.get(a.id) - depth.get(b.id));
 }
 
 const operations = {
@@ -280,16 +447,8 @@ const operations = {
   async 'message.history'({ conversation, thread } = {}, ctx = {}) {
     if (!conversation) return { events: [] };
     await account(ctx);
-    const out = await run([...globalArgs(ctx), '--json', 'messages', 'list', '--chat', conversation, '--limit', '200'], ctx.spawn);
-    const data = envelope(out);
-    const rows = Array.isArray(data.messages) ? data.messages : [];
-    const kept = thread ? rows.filter((row) => row.MsgID === thread || row.quoted_msg_id === thread) : rows;
-    return {
-      events: kept.map((row) => eventOf({
-        id: row.MsgID, chat: row.ChatJID || conversation, sender: row.SenderJID || '', text: row.Text || '',
-        fromMe: row.FromMe, timestamp: Date.parse(row.Timestamp) || Date.now(), replyTo: row.quoted_msg_id || null,
-      }, { owner: ctx.owner || ctx.section?.owner || '', account: ctx.account || '' })),
-    };
+    const rows = await chatHistory(conversation, thread || null, ctx);
+    return { events: historyEvents(conversation, thread || null, rows, ctx) };
   },
   async 'message.receive'({ onEvent, secret, owner, account: linked, port, installation, spawn: spawnImpl } = {}) {
     const listening = await listen({ secret, owner, account: linked, port, onEvent });

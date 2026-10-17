@@ -7,8 +7,8 @@
     "docs.js": "7fb0658bd369408381c0520add151130be1ba9b79825b86860c925ae201b2e41",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "listener.js": "57096a4b25095fe6889a7f859043393501d90006dc9c28b838e1ec28cc8560b0",
-    "outbox.js": "50f73b6fde3f1707b63bb4b72bd24a97d8f14ac728ae62a6179b4c2d2049febb",
+    "listener.js": "bc1da24020a5d92c4c75e7036862137068a8249b9f5ccc759edbadd31ded0076",
+    "outbox.js": "b54962b702e99cab728849d9c7f5e74cafb9a9019d2066ec42c3ced240348ac5",
     "payment-panel.js": "e39be79a7b6ec8fc3783801f3146068eff03a9289d051d4a2e0293c326fd4439",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
@@ -683,7 +683,7 @@
     },
     {
       "file": "history.js",
-      "line": "? (connector && connector !== 'slack' ? ` (${connector} id ${row.ts})` : ` (Slack timestamp ${row.ts})`)",
+      "line": "if (!account && !sender) return connector === 'slack' ? ` (Slack timestamp ${row.ts})` : ` (${connector} id ${row.ts})`;",
       "nth": 0,
       "kind": "message"
     },
@@ -779,7 +779,31 @@
     },
     {
       "file": "listener.js",
+      "line": "const isSlack = event.connector === 'slack';",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
       "line": "if (event.connector === 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "AND COALESCE(json_extract(m.metadata, '$.connector'), 'slack')='slack'",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "AND COALESCE(json_extract(m.metadata, '$.connector'), 'slack')='slack'",
+      "nth": 1,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "AND COALESCE(json_extract(m.metadata, '$.connector'), 'slack')=? AND c.key LIKE ?`)",
       "nth": 0,
       "kind": "message"
     },
@@ -882,6 +906,12 @@
     {
       "file": "outbox.js",
       "line": "return 'slack';",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (connector === 'slack' || !connector) return null;",
       "nth": 0,
       "kind": "message"
     },
@@ -1134,6 +1164,18 @@
     {
       "file": "prompt.js",
       "line": "if (connector && connector !== 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "prompt.js",
+      "line": "if (connector === 'slack' && (meta.account != null || meta.from != null || meta.claimed != null || row.provenance?.account != null)) {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "prompt.js",
+      "line": "return `\\nSource: slack account ${account} conversation ${conversation} id ${row.ts} sender ${trust} ${sender}`;",
       "nth": 0,
       "kind": "message"
     },

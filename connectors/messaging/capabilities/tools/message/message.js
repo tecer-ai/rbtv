@@ -13,6 +13,10 @@
 // Both outbound verbs authorize from Ignite's configured team, owner and routes before loading any
 // adapter. A DM reply checks Slack's conversation metadata in the port, never a reference or message
 // sender. Reference consumers also bind the configured and actual accounts before reading or writing.
+// A non-Slack connector's reply resolves its real recipient through the authenticated connector first
+// (google: the mail thread the reference's conversation names, verified to contain the referenced
+// message) and authorizes that exact service-specific address; a configured account alone grants
+// nothing, and mail addresses are compared whole, never by digit stripping.
 //
 // API
 // main(argv, deps?) → Promise<exit code>. deps: root (the folder holding connectors/, this repository),
@@ -25,6 +29,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const sendModule = require('./lib/send.js');
+const { sameAddress } = require('./lib/same-address.js');
 const { envValue } = require('../../../../../core/ignite/capabilities/tools/ignite/config.js');
 
 const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
@@ -395,14 +400,15 @@ async function permission(ctx, connector, to, verb) {
   const config = policyConfig(ctx);
   // Phase 2 has grants for the configured Slack account only. A mirror/other connector cannot
   // borrow Slack ids as its own permissions; its grants arrive with that port's contact book.
-  const owner = connector.name === 'slack' ? config?.slack?.ownerUserId || null : (config?.listeners?.[connector.name]?.owner || null);
+  const isSlack = connector.name === 'slack';
+  const owner = isSlack ? config?.slack?.ownerUserId || null : (config?.listeners?.[connector.name]?.owner || null);
   const slug = ctx.home ? path.basename(ctx.home) : null;
-  const channels = connector.name === 'slack' && slug && config?.routes
+  const channels = isSlack && slug && config?.routes
     ? Object.entries(config.routes).filter(([id, agent]) => agent === slug && /^[CG][A-Z0-9]+$/.test(id)).map(([id]) => id) : [];
-  if (config?.slack?.team && (channels.includes(to) || (verb === 'send' && owner && to === owner))) return;
-  const section = listenerSection(ctx, connector.name);
-  if (connector.name !== 'slack' && verb === 'reply' && section?.account) return;
-  if (connector.name !== 'slack' && owner && (to === owner || String(to).startsWith(`${owner}@`) || String(to).replace(/\D/g, '') === String(owner).replace(/\D/g, ''))) return;
+  if (config?.slack?.team && (channels.includes(to) || (isSlack && verb === 'send' && owner && to === owner))) return;
+  // A non-Slack owner grant is the exact service-specific address (a mail address whole, a phone's
+  // digits), the resolved reply recipient included: a configured account alone grants no reply.
+  if (!isSlack && owner && sameAddress(to, owner)) return;
   let verification = '';
   if (verb === 'reply' && owner && config?.slack?.team && /^D[A-Z0-9]+$/.test(to)) {
     try { if (await ownerConversation(ctx, to, owner)) return; }
@@ -599,6 +605,47 @@ async function doSend(io, parsed, ctx) {
   return reportRefusedFiles(io, body, ref, result);
 }
 
+// A connector failure on a thread reference: a message id that belongs to another conversation is
+// the mismatch refusal; a thread the service does not know is not-found; anything else a failure.
+function refusalOf(connector, verb, error) {
+  if (error.code === 'thread' && /thread_mismatch/.test(String(error.message || ''))) {
+    return refuse(`${verb} refused: reference conversation does not match`, error.message, 'copy the Ref line of message send or message history; nothing was sent');
+  }
+  if (error.code === 'thread') {
+    const fix = verb === 'history' ? 'message history --thread REF of a reference message send printed' : 'message history --thread REF of a reference message send printed; nothing was sent';
+    return refuse(`${verb} failed: thread not found`, error.message, fix);
+  }
+  return refuse(`${verb} failed: ${connector.name} did not answer`, error.message, 'run the same command again; nothing was sent');
+}
+
+// A google reference is connector:mailbox:thread:message: its conversation names the mail thread
+// and its id a message in that thread. The reply's recipient is resolved through the connector's
+// own authenticated resolution (its resolveReply export: the address Gmail authenticated, with the
+// message/thread binding validated), and that exact address is what the owner check authorizes —
+// never the reference or a configured account alone. A WhatsApp reference's conversation is the
+// chat itself: the chat's address is the recipient, the phone identifier it is.
+async function resolveNonSlackReply(adapter, ctx, connector, ref) {
+  if (connector.name !== 'google') return { group: ref.conversation, thread: ref.id, recipient: ref.conversation };
+  if (typeof adapter.resolveReply !== 'function') {
+    throw refuse("reply refused: the reply's recipient cannot be verified",
+      `connectors/${connector.name} exposes no reply resolution for a mail reference`,
+      `update connectors/${connector.name} with its adapter; nothing was sent`);
+  }
+  let target;
+  try {
+    target = await adapter.resolveReply({ id: ref.id, conversation: ref.conversation }, adapterContext(ctx, connector));
+  } catch (error) {
+    throw refusalOf(connector, 'reply', error);
+  }
+  const recipient = String(target?.to || '').trim();
+  if (!recipient || recipient.includes(':')) {
+    throw refuse("reply refused: the reply's recipient cannot be verified",
+      `${connector.name} resolved no address for message ${ref.id} in ${ref.conversation}`,
+      'reply to a message the owner sent; nothing was sent');
+  }
+  return { group: ref.conversation, thread: ref.id, recipient };
+}
+
 async function doReply(io, parsed, ctx) {
   const { opts, text } = parsed;
   if (opts.thread === undefined) throw invalid('reply needs --thread REF', 'a reply goes where the thread lives', 'message reply --thread REF TEXT   (message reply -h)');
@@ -609,13 +656,23 @@ async function doReply(io, parsed, ctx) {
   const ref = parseRef(opts.thread, 'reply');
   const connector = connectorOf(ctx.all, ref.connector, 'reply');
   referenceAccount(ctx, ref, 'reply');
-  await permission(ctx, connector, ref.conversation, 'reply');
+  if (connector.name === 'slack') await permission(ctx, connector, ref.conversation, 'reply');
   const adapter = loadAdapter(connector);
   const account = await accountOf(adapter, ctx, connector, 'reply', ref);
+  // A non-Slack reply resolves its real recipient through the authenticated connector first; the
+  // owner check authorizes that resolved address, never the reference or a configured account alone.
+  let group = ref.conversation;
+  let thread = ref.id;
+  if (connector.name !== 'slack') {
+    const resolved = await resolveNonSlackReply(adapter, ctx, connector, ref);
+    group = resolved.group;
+    thread = resolved.thread;
+    await permission(ctx, connector, resolved.recipient, 'reply');
+  }
   const as = sendModule.senderOf(ctx.home);
   let result;
   try {
-    result = await sendModule.send(boundOperations(adapter, ctx, connector), { group: ref.conversation, thread: ref.id, text: body || '', files, as, clientId: `message:${randomUUID()}` });
+    result = await sendModule.send(boundOperations(adapter, ctx, connector), { group, thread, text: body || '', files, as, clientId: `message:${randomUUID()}` });
   } catch (error) {
     if (error.code === 'thread') throw refuse('reply failed: thread not found', error.message, 'message history --thread REF of a reference message send printed; nothing was sent');
     throw refuse(`reply failed: ${connector.name} did not deliver`, error.message, 'run the same command again; nothing was sent');
@@ -642,14 +699,22 @@ async function doHistory(io, parsed, ctx) {
   if (typeof adapter.operations['message.history'] !== 'function') {
     throw refuse(`history refused: ${connector.name} does not provide message.history`, `the ${connector.name} record lists no message.history under provides`, 'read the thread in the service itself');
   }
+  // A google reference's conversation is the mail thread and its id a message in it: the adapter
+  // resolves that binding and refuses a message outside its conversation; the membership check
+  // below keeps the invariant true whatever the adapter answered.
+  const googleShape = connector.name === 'google';
   let result;
   try {
     result = await adapter.operations['message.history']({ conversation: ref.conversation, thread: ref.id }, adapterContext(ctx, connector));
   } catch (error) {
-    if (error.code === 'thread') throw refuse('history failed: thread not found', error.message, 'message history --thread REF of a reference message send printed');
-    throw refuse(`history failed: ${connector.name} did not answer`, error.message, 'run the same command again');
+    throw refusalOf(connector, 'history', error);
   }
   const events = Array.isArray(result?.events) ? result.events : [];
+  if (googleShape && ref.id !== ref.conversation && !events.some((event) => event.id === ref.id)) {
+    throw refuse('history refused: reference conversation does not match',
+      `message ${ref.id} is not in conversation ${ref.conversation} as ${connector.name} reads it`,
+      'copy the Ref line of message send or message history');
+  }
   const shown = parsed.json ? events : events.map(({ raw, ...rest }) => rest);
   emitHistory(io, parsed.json, ref, connector.name, shown, Boolean(opts.full));
   return 0;

@@ -3,9 +3,11 @@
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
+
 
 PAGE = Path(__file__).resolve().with_suffix(".md")
 TRIMMED = ("--message", "--caption")
@@ -42,15 +44,51 @@ def trim_outgoing(arguments):
     return trimmed
 
 
-def main():
+def run_wacli(arguments):
+    """Run wacli and stay responsible for the process this wrapper started.
+
+    A stop signal is forwarded to wacli and the wrapper exits only after wacli is gone, so a
+    caller that awaits this wrapper's exit has awaited the whole tree (leaving wacli orphaned
+    kept a stopped sync alive).
+    """
     wacli = shutil.which("wacli")
     if wacli is None:
         sys.exit("whatsapp: wacli-missing\n"
                  "  why: the wacli program is not on PATH\n"
                  f"  fix: install it as {PAGE} says, then run: whatsapp doctor")
-    os.environ.setdefault("WACLI_STORE_DIR", str(installation_root() / ".rbtv/runtime/whatsapp"))
+    child = subprocess.Popen([wacli, *arguments])
+
+    def hand_off(signum, frame):
+        if child.poll() is None:
+            child.terminate()
+
+    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            signal.signal(number, hand_off)
+        except (OSError, ValueError):
+            pass
+    try:
+        return child.wait()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def names_store(arguments):
+    """Whether the caller already named the store, so no installation needs to be found."""
+    return "WACLI_STORE_DIR" in os.environ or any(a == "--store" or a.startswith("--store=") for a in arguments)
+
+
+def main():
+    arguments = trim_outgoing(sys.argv[1:])
+    if not names_store(arguments):
+        os.environ["WACLI_STORE_DIR"] = str(installation_root() / ".rbtv/runtime/whatsapp")
     # Not os.execv: on Windows it detaches the child from the console.
-    sys.exit(subprocess.call([wacli, *trim_outgoing(sys.argv[1:])]))
+    sys.exit(run_wacli(arguments))
 
 
 if __name__ == "__main__":

@@ -52,6 +52,16 @@ function owner(extra) {
   };
 }
 
+// Queued work per agent; routing may read any agent's store, but only the routed agent queues.
+function queuedBy(h) {
+  const counts = {};
+  for (const [slug, store] of h.stores) {
+    const { n } = store.db.prepare('SELECT COUNT(*) AS n FROM queue').get();
+    if (n) counts[slug] = n;
+  }
+  return counts;
+}
+
 test('rule change does not queue a second copy', async () => {
   const h = harness();
   try {
@@ -72,7 +82,7 @@ test('ordinary inbound thread stays with its agent', async () => {
     fs.writeFileSync(h.ctx.subscriptionFile, JSON.stringify([{ id: 'later', connector: 'slack', account: 'T1', agent: 'gaming', judge: null }]));
     const reply = await dispatch(owner({ id: '5.200000', thread: '5.100000', text: 'reply' }), h.ctx);
     assert.equal(reply.agent, 'master');
-    assert.equal([...h.stores.keys()].includes('gaming'), false);
+    assert.deepEqual(queuedBy(h), { master: 2 });
   } finally { h.close(); }
 });
 
@@ -130,8 +140,7 @@ test('a held judgment is replayed and not sent to the default', async () => {
     rows[0].nextAt = 0;
     fs.writeFileSync(file, JSON.stringify(rows));
     await replayHeld(h.ctx);
-    assert.equal(h.stores.has('gaming'), true);
-    assert.equal(h.stores.has('master'), false);
+    assert.deepEqual(queuedBy(h), { gaming: 1 });
   } finally { h.close(); }
 });
 
@@ -311,6 +320,49 @@ test('polls do not overlap and stop waits for the child to exit', async () => {
   assert.equal(started, 1);
   await session.stop();
   assert.equal(killed > 0, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// A mail the connector cannot read is retried, then given up: each failed read and the drop are
+// decision lines, so the owner's operator log shows a mail that never reached an agent.
+test('a mail read failure and its drop are logged as decisions', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gmail-drop-'));
+  const decisionFile = path.join(dir, 'decisions.jsonl');
+  fs.writeFileSync(path.join(dir, 'google-cursor-review.json'), JSON.stringify({
+    account: 'review', mailbox: 'sara@example.com', afterMs: 1, seen: [],
+    held: [{ id: 'bad1', internalDate: 1, attempts: 2, lastError: 'earlier' }, { id: 'bad2', internalDate: 1, attempts: 0 }],
+  }));
+  const session = await start({
+    config: {
+      workspace: dir,
+      listeners: { google: { account: 'review', mailbox: 'sara@example.com', owner: 'owner@example.com', agent: 'sara', pollMs: 10 } },
+    },
+    decisionFile,
+    subscriptionFile: path.join(dir, 'subscriptions.json'),
+    threadFile: path.join(dir, 'threads.json'),
+    defaults: { mail: 'sara' },
+    openStore() { throw new Error('no store'); },
+    spawn(cmd, args) {
+      const proc = child();
+      process.nextTick(() => {
+        if (args.includes('--message-id')) { proc.stderr.emit('data', 'read failed: 500'); proc.emit('close', 1); return; }
+        proc.stderr.emit('data', 'MAILBOX sara@example.com\n'); proc.stdout.emit('data', '[]'); proc.emit('close', 0);
+      });
+      return proc;
+    },
+  });
+  try {
+    for (let i = 0; i < 100 && !(fs.existsSync(decisionFile) && /mail-dropped/.test(fs.readFileSync(decisionFile, 'utf8'))); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  } finally { await session.stop(); }
+  const lines = fs.readFileSync(decisionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const dropped = lines.filter((line) => line.step === 'mail-dropped');
+  const failed = lines.filter((line) => line.step === 'mail-read-failed');
+  assert.deepEqual(dropped.map((line) => line.id), ['bad1']);
+  assert.equal(dropped[0].connector, 'google');
+  assert.equal(dropped[0].attempts, 3);
+  assert.equal(failed.some((line) => line.id === 'bad2' && line.attempts === 1), true);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

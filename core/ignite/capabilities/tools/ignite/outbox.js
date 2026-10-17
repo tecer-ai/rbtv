@@ -10,6 +10,9 @@
 //   posted to the returned DM: Slack may route a post addressed to a user id to the Slackbot DM.
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
 //   Pending rows are reloaded before delivery so later replies follow the newly bound thread.
+//   A conversation carried by a non-Slack connector is delivered only through the account its
+//   stored message metadata names and the listener's session still is: otherwise the row is
+//   stopped for repair (never sent through the current account, never marked delivered).
 //   The post and the uploads go through the one send function the `message` port command uses too,
 //   connectors/messaging/capabilities/tools/message/lib/send.js (sendModule, exported for the test that
 //   fails when the two callers diverge), with an operations object built from this client: postMessage
@@ -39,6 +42,7 @@ const { MAX_ATTEMPTS } = require('./store.js');
 const live = require('./live-status.js');
 const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const sendModule = require('../../../../../connectors/messaging/capabilities/tools/message/lib/send.js');
+const { sameAddress } = require('../../../../../connectors/messaging/capabilities/tools/message/lib/same-address.js');
 
 const RETRY_MS = 5_000;
 const PERMANENT = new Set([
@@ -90,6 +94,38 @@ function connectorOf(store, conv) {
     }
   } catch { /* a conversation with no connector stays on the Slack client */ }
   return 'slack';
+}
+
+// The account a conversation was opened through, from its stored message metadata (the listener records
+// it with every inbound event). Null when the conversation has none: never guessed from a key.
+function conversationAccount(store, conv) {
+  try {
+    const rows = store.db.prepare('SELECT metadata FROM messages WHERE conversation_key=? ORDER BY created_at DESC, id DESC').all(conv.key);
+    for (const row of rows) {
+      const meta = JSON.parse(row.metadata || 'null');
+      if (meta?.account) return String(meta.account);
+    }
+  } catch { /* no binding below */ }
+  return null;
+}
+
+// A non-Slack conversation is delivered only through the account it was opened with: a listener whose
+// session is another account must not send an old account's replies (nor mark them delivered).
+function accountBinding(store, conv, connector, deps) {
+  if (connector === 'slack' || !connector) return null;
+  const bound = conversationAccount(store, conv);
+  const section = deps.listeners?.[connector] || null;
+  const current = [section?.account, section?.mailbox].filter(Boolean).map(String);
+  if (!bound) {
+    return `conversation ${conv.key} has no stored account binding for ${connector}; repair: ignite post`;
+  }
+  if (!current.length) {
+    return `conversation ${conv.key} belongs to account ${bound} and no ${connector} listener is configured`;
+  }
+  if (!current.some((name) => sameAddress(name, bound))) {
+    return `conversation ${conv.key} belongs to account ${bound}; the current ${connector} account is ${current.join(' or ')}`;
+  }
+  return null;
 }
 
 function operationsFor(name, deps) {
@@ -184,6 +220,13 @@ async function deliverOne(store, row, deps, now) {
   const target = targetOf(row, conv);
   const { threadTs } = target;
   let { channel } = target;
+  const connector = connectorOf(store, conv);
+  const binding = accountBinding(store, conv, connector, deps);
+  if (binding) {
+    // Held for repair, never sent through another account and never marked delivered.
+    store.stopOutbox(row.id, binding);
+    return { id: row.id, delivered: false, stopped: true, error: binding };
+  }
   const text = typeof row.payload?.text === 'string' ? row.payload.text : '';
   const files = Array.isArray(row.payload?.files) ? row.payload.files.slice() : [];
   const as = sendModule.senderOf(deps.home);
@@ -200,7 +243,7 @@ async function deliverOne(store, row, deps, now) {
     if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');
     let confirmed = row.channel && row.ts ? { channel: row.channel, ts: row.ts } : null;
     // A retry of a row whose text Slack confirmed sends the files only, into that text's thread.
-    const sent = await sendModule.send(operationsFor(connectorOf(store, conv), deps), {
+    const sent = await sendModule.send(operationsFor(connector, deps), {
       group: channel, thread: threadTs || (confirmed ? confirmed.ts : null), text: confirmed ? '' : text, files, as, clientId: row.client_msg_id,
     });
     if (!confirmed && sent.id && (text || !files.length || sent.textAsFile)) {
