@@ -258,8 +258,11 @@ async function execute(slug, claim, deps) {
   resolveIgniteRuntime(home);
   const dir = path.join(ignitePaths(home).turns, claim.runId);
   fs.mkdirSync(dir, { recursive: true });
-  const prepared = await preprocess(claim, deps, path.join(dir, 'files'));
   const message = live.messageOf(store, claim, deps.log);
+  if (claim.kind === 'owner' && Array.isArray(claim.payload?.files) && claim.payload.files.some(isAudio)) {
+    live.transcribing(store, message, claim.runId, deps.log);
+  }
+  const prepared = await preprocess(claim, deps, path.join(dir, 'files'));
   if (prepared.transcripts?.length) {
     store.recordMessage(claim.conversation_key, {
       id: `used:${claim.runId}`,

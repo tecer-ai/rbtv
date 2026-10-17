@@ -28,7 +28,7 @@ function clock(start = 1_000_000) {
 
 const FRAMES = new Set(['clock12', 'clock2', 'clock4', 'clock6', 'clock8', 'clock10',
   'mag', 'mag_right', 'brain', 'thought_balloon', 'hammer', 'hammer_and_wrench', 'busts_in_silhouette',
-  'bust_in_silhouette', 'zzz', 'sleeping']);
+  'bust_in_silhouette', 'zzz', 'sleeping', 'microphone', 'memo']);
 const TASKS = new Set(['white_check_mark', 'warning', 'question', 'black_square_for_stop']);
 const SYSTEMS = new Set(['hourglass_flowing_sand', 'large_green_circle', 'repeat', 'recycle', 'x']);
 
@@ -258,6 +258,7 @@ test('every agent state has its frames and every task state its emoji', async ()
     making: ['hammer', 'hammer_and_wrench'],
     orchestrating: ['busts_in_silhouette', 'bust_in_silhouette'],
     waiting: ['zzz', 'sleeping'],
+    transcribing: ['microphone', 'memo'],
   };
   for (const [agent, names] of Object.entries(frames)) {
     const t = clock();
@@ -812,7 +813,8 @@ test('ticker: a row made before the shown column is an unknown display: every li
         'remove clock12', 'remove clock2', 'remove clock4', 'remove clock6', 'remove clock8', 'remove clock10',
         'remove mag', 'remove mag_right', 'remove brain', 'remove thought_balloon',
         'remove hammer', 'remove hammer_and_wrench', 'remove busts_in_silhouette', 'remove bust_in_silhouette',
-        'remove zzz', 'remove sleeping', 'remove white_check_mark', 'remove warning', 'remove question',
+        'remove zzz', 'remove sleeping', 'remove microphone', 'remove memo',
+        'remove white_check_mark', 'remove warning', 'remove question',
         'remove black_square_for_stop', 'remove hourglass_flowing_sand', 'remove large_green_circle', 'remove repeat',
         'remove recycle', 'remove x', 'add large_green_circle', 'add white_check_mark',
       ]);
@@ -1397,7 +1399,7 @@ test('legend: the modal, its header, and the heading and rows of each group as a
   assert.deepEqual(view.blocks.map((b) => (b.fields ? `fields ${b.fields.length}` : b.type)), [
     'header', 'context',
     'divider', 'section', 'fields 10',
-    'divider', 'section', 'fields 10', 'fields 2',
+    'divider', 'section', 'fields 10', 'fields 4',
     'divider', 'section', 'fields 8',
   ]);
   assert.deepEqual(view.blocks[0], { type: 'header', text: { type: 'plain_text', text: 'What the reactions mean' } });
@@ -1411,8 +1413,11 @@ test('legend: the modal, its header, and the heading and rows of each group as a
     mrkdwn(':clock12::clock2: *Working*'), mrkdwn('At work; it has not named the kind of work.'),
     mrkdwn(':mag::mag_right: *Gathering*'), mrkdwn('Reading, searching and collecting what the work needs.'),
   ]);
-  // The sixth agent row continues in a second section.
-  assert.deepEqual(view.blocks[8], { type: 'section', fields: [mrkdwn(':zzz::sleeping: *Waiting*'), mrkdwn('Waiting for its workers to finish.')] });
+  // System-owned states share the right-hand animation, including before the model starts.
+  assert.deepEqual(view.blocks[8], { type: 'section', fields: [
+    mrkdwn(':zzz::sleeping: *Waiting*'), mrkdwn('Waiting for its workers to finish.'),
+    mrkdwn(':microphone::memo: *Transcribing*'), mrkdwn('The system is transcribing incoming audio before the model starts.'),
+  ] });
   assert.deepEqual(view.blocks[10], { type: 'section', text: mrkdwn('*Task* · right · once it replies') });
   assert.deepEqual(view.blocks[11].fields.slice(2, 4), [mrkdwn(':warning: *Caveats*'), mrkdwn('Done, with problems worth a follow-up.')]);
 });
@@ -1422,7 +1427,7 @@ test('legend: every state of the Ignite contract appears once, in order, with it
   assert.deepEqual(Object.keys(EMOJI.system), live.SYSTEM);
   assert.deepEqual(Object.keys(EMOJI.agent), live.AGENT);
   assert.deepEqual(Object.keys(EMOJI.task), live.TASK);
-  assert.deepEqual([live.SYSTEM.length, live.AGENT.length, live.TASK.length], [5, 6, 4]);
+  assert.deepEqual([live.SYSTEM.length, live.AGENT.length, live.TASK.length], [5, 7, 4]);
   const view = legendView(live.MEANING);
   const shown = { system: [], agent: [], task: [] };
   let layer = null;

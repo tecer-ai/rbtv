@@ -8,8 +8,8 @@
 //
 // API
 // SYSTEM   queued | running | fallback | retrying | failed — set by Ignite
-// AGENT    working | gathering | thinking | making | orchestrating | waiting — working by Ignite at
-//          each turn start, waiting by Ignite when a turn ends waiting_workers
+// AGENT    working | gathering | thinking | making | orchestrating | waiting | transcribing — working
+//          by Ignite at model start, waiting at waiting_workers, transcribing during audio preprocessing
 // DECLARED gathering | thinking | making | orchestrating — the agent states `ignite status` takes
 // TASK     done | caveats | question | stopped — from the turn result, shown at delivery
 // MEANING  { system, agent, task }: each layer's states in the order above, each with one plain
@@ -34,6 +34,8 @@
 //   received(store, message, log)               the new owner message is known; system queued, and no
 //                                               task on it, unless a turn of the conversation runs
 //   started(store, message, runId, log)         system running, agent working, no task
+//   transcribing(store, message, runId, log)    agent transcribing during incoming audio processing;
+//                                               system unchanged, or queued for a new row; no task
 //   fellBack(store, message, log)               system fallback
 //   ended(store, message, disposition, task, replies, log)
 //                                               waiting_workers → agent waiting; continue → agent
@@ -81,6 +83,7 @@ const MEANING = Object.freeze({
     making: 'Writing, building or editing files.',
     orchestrating: 'Launching and coordinating workers.',
     waiting: 'Waiting for its workers to finish.',
+    transcribing: 'The system is transcribing incoming audio before the model starts.',
   }),
   task: Object.freeze({
     done: 'The work is done.',
@@ -196,6 +199,15 @@ function received(store, message, log) {
       // A new request: its message shows and keeps no task of the work before it.
       return { system: 'queued', ...(row.ts === message.ts && { task: null, kept: null, keptFor: null }) };
     });
+  }));
+}
+
+function transcribing(store, message, runId, log) {
+  const key = message?.conversationKey;
+  if (!key || !message.channel || !message.ts) return null;
+  return guard(log, () => store.transaction(() => {
+    know(store, message);
+    return onLive(store, key, (row) => ({ system: row.system || 'queued', agent: 'transcribing', task: null, runId }));
   }));
 }
 
@@ -357,6 +369,6 @@ function markTask(store, conversationKey, ts, task) {
 
 module.exports = {
   SYSTEM, AGENT, DECLARED, TASK, MEANING,
-  taskOf, messageOf, received, started, fellBack, ended, failed, delivered, deliveryFailed, waitEnded,
+  taskOf, messageOf, received, transcribing, started, fellBack, ended, failed, delivered, deliveryFailed, waitEnded,
   declare, markTask,
 };

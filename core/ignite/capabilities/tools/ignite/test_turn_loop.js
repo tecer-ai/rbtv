@@ -12,6 +12,8 @@ const { example } = require('../../../../cast/capabilities/tools/cast/example-mo
 const { Store } = require('./store.js');
 const { main } = require('./cli.js');
 const { runOnce } = require('./turn-loop.js');
+const live = require('./live-status.js');
+const { createTicker } = require('./status-ticker.js');
 const { deliverPending } = require('./outbox.js');
 const { historyPath, writeHistory } = require('./history.js');
 const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
@@ -1015,6 +1017,121 @@ test('retry after a posted text does not post it again', async (ctx) => {
   assert.equal(second.delivered, true);
   assert.equal(box.slack.posts.length, 1);
   assert.equal(textHits(box.slack, 'once only'), 1);
+});
+
+test('transcription status: download and provider waits animate before launch, survive ticker restart and hand off to the model', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, { text: '', files: [{ id: 'FA', name: 'note.m4a', mimetype: 'audio/mp4' }] });
+  const message = { conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '1.1' };
+  live.received(box.store, message);
+  let releaseDownload;
+  let releaseTranscript;
+  const download = new Promise((resolve) => { releaseDownload = resolve; });
+  const transcript = new Promise((resolve) => { releaseTranscript = resolve; });
+  let downloadEntered = false;
+  let providerEntered = false;
+  box.slack.downloadFile = async () => { downloadEntered = true; await download; return [{ id: 'FA', path: '/note.m4a' }]; };
+  box.audio.transcribe = async () => { providerEntered = true; await transcript; return { text: 'provider independent words' }; };
+  let at = 1_000_000;
+  const makeTicker = () => createTicker({ stores: () => [{ slug: 'master', store: box.store }], slack: () => box.slack, now: () => at });
+  let ticker = makeTicker();
+  const tick = async () => { for (let i = 0; i < 60; i++) { at += 100; await ticker.step(); } };
+  box.sync();
+  const turn = runOnce('master', box.deps);
+  try {
+    for (let i = 0; i < 10 && !downloadEntered; i++) await delay(1);
+    assert.equal(downloadEntered, true);
+    // These literals guard what the owner sees, independently of the implementation's constants.
+    assert.deepEqual(liveOf(box.store), { system: 'queued', agent: 'transcribing', task: null });
+    assert.equal(box.store.getLiveStatus('C1', '1.1').run_id, box.store.getActiveRun().id);
+    assert.equal(providerEntered, false);
+    assert.equal(seen(box).length, 0);
+    await tick();
+    assert.ok(box.slack.reactions.some((r) => r.op === 'add' && r.name === 'microphone'));
+    assert.ok(box.slack.reactions.some((r) => r.op === 'add' && r.name === 'memo'));
+    assert.equal(box.slack.marksOf('C1', '1.1')[0], 'hourglass_flowing_sand');
+    releaseDownload();
+    for (let i = 0; i < 10 && !providerEntered; i++) await delay(1);
+    assert.equal(providerEntered, true);
+    assert.deepEqual(liveOf(box.store), { system: 'queued', agent: 'transcribing', task: null });
+    assert.equal(seen(box).length, 0);
+    await ticker.stop();
+    ticker = makeTicker();
+    await tick();
+    assert.equal(box.slack.marksOf('C1', '1.1')[0], 'hourglass_flowing_sand');
+    assert.ok(box.slack.reactions.filter((r) => r.op === 'add' && r.name === 'memo').length >= 2);
+    releaseTranscript();
+    const result = await turn;
+    assert.equal(result.launched, true);
+    assert.match(seen(box)[0].prompt, /provider independent words/);
+    assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'working', task: null });
+    await tick();
+    assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['large_green_circle', 'clock12']);
+  } finally {
+    releaseDownload();
+    releaseTranscript();
+    await turn;
+    await ticker.stop();
+  }
+});
+
+for (const failure of ['download', 'transcribe', 'missing file']) {
+  test(`transcription status: ${failure} failure clears the animation without launching a model`, async (ctx) => {
+    const box = harness(ctx);
+    seed(box.store, { text: '', files: [{ name: 'note.m4a', mimetype: 'audio/mp4' }] });
+    let during;
+    box.slack.downloadFile = async () => {
+      during = liveOf(box.store);
+      if (failure === 'download') throw new Error('download unavailable');
+      return failure === 'missing file' ? [] : [{ name: 'note.m4a', path: '/note.m4a' }];
+    };
+    box.audio.transcribe = async () => { throw new Error('transcriber unavailable'); };
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.deepEqual(during, { system: 'queued', agent: 'transcribing', task: null });
+    assert.equal(seen(box).length, 0);
+    assert.notEqual(result.launched, true);
+    assert.deepEqual(liveOf(box.store), { system: failure === 'download' ? 'retrying' : 'failed', agent: null, task: null });
+  });
+}
+
+test('transcription status: text and non-audio attachments never enter transcription', async (ctx) => {
+  const box = harness(ctx);
+  const states = [];
+  const original = box.store.setLiveStatus.bind(box.store);
+  box.store.setLiveStatus = (fields) => { states.push(fields.agent); return original(fields); };
+  box.audio.transcribe = async () => { throw new Error('unexpected transcription'); };
+  for (const files of [[], [{ name: 'photo.jpg', mimetype: 'image/jpeg' }]]) {
+    seed(box.store, { id: files.length ? '2.2' : '1.1', text: 'typed words', files });
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.launched, true);
+    assert.match(seen(box).at(-1).prompt, /typed words/);
+  }
+  assert.equal(states.includes('transcribing'), false);
+  assert.ok(states.includes('working'));
+});
+
+test('transcription status: a newer message takes the animation and dead-run recovery clears it', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, { text: '', files: [{ name: 'note.m4a', mimetype: 'audio/mp4' }] });
+  box.slack.downloadFile = async () => {
+    seed(box.store, { id: '2.2', text: 'more words', createdAt: 20 });
+    live.received(box.store, { conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '2.2' });
+    assert.deepEqual(liveOf(box.store), { system: null, agent: null, task: null });
+    assert.deepEqual(liveOf(box.store, '2.2'), { system: 'queued', agent: 'transcribing', task: null });
+    return [{ name: 'note.m4a', path: '/note.m4a' }];
+  };
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.launched, true);
+  // A process lost before the model starts uses the normal recovery path, stopping the blink.
+  box.sync();
+  const claim = box.store.claimNext(box.now());
+  box.store.setLiveStatus({ channel: 'C1', ts: '2.2', agent: 'transcribing', runId: claim.runId });
+  const recovered = await runOnce('master', box.deps);
+  assert.equal(recovered.recovered.failure.held, false);
+  assert.deepEqual(liveOf(box.store, '2.2'), { system: 'retrying', agent: null, task: null });
 });
 
 test('transcription failure replies plainly and logs its detail', async (ctx) => {

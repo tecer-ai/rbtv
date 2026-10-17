@@ -71,6 +71,7 @@ const EMOJI = Object.freeze({
     making: Object.freeze(['hammer', 'hammer_and_wrench']),
     orchestrating: Object.freeze(['busts_in_silhouette', 'bust_in_silhouette']),
     waiting: Object.freeze(['zzz', 'sleeping']),
+    transcribing: Object.freeze(['microphone', 'memo']),
   }),
   task: Object.freeze({
     done: 'white_check_mark',

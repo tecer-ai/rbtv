@@ -11,13 +11,16 @@ Ignite owns the states and names no emoji. A messaging connector shows them in i
 | system | `fallback` | Ignite, when the turn runs on a fallback model |
 | system | `retrying` | Ignite, after a failure that will be retried |
 | system | `failed` | Ignite, after a failure that ends the work (a hold, a reply that gives up, a voice note that cannot be transcribed) |
-| agent | `working` | Ignite, at the start of every turn |
+| agent | `working` | Ignite, when the model starts |
 | agent | `gathering`, `thinking`, `making`, `orchestrating` | The agent, with `ignite status <state>` |
 | agent | `waiting` | Ignite, when a turn ends `waiting_workers`, until the next turn of that conversation starts or its work stops waiting (stopped, held) |
+| agent | `transcribing` | Ignite, before downloading and transcribing incoming audio, until the model starts or processing fails |
 | task | `done` | A `completed` result, once its replies are delivered |
 | task | `caveats` | A `completed` result with `"caveats": true` |
 | task | `question` | A `waiting_owner` result |
 | task | `stopped` | A `stopped` result |
+
+The `transcribing` state uses the right-hand agent layer before any model starts. Ignite sets it automatically for an owner message with audio; it works with any configured transcriber and is not an agent-declared state. The system state on the left stays unchanged. At model launch, `running` and `working` replace it; a processing failure clears it through the normal failure path. Text and non-audio attachments do not enter this state.
 
 The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A scheduled wake answers no owner message and shows nothing.
 

@@ -8,7 +8,7 @@
     "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
-    "turn-loop.js": "99506f7745e869832dfa445a03e7bac30f191519313ecd3548b0bb49d83ba251"
+    "turn-loop.js": "d6c731044b584b58668ca532bf244bee0d43edf2bbdd8496cce4c74986e7c79b"
   },
   "uses": [
     {

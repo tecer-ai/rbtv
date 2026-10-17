@@ -12,6 +12,7 @@
 - **The Slack side is pure logic in the Slack connector**, handed the reaction functions by its caller, so it works with Ignite's own Slack client.
 - **The legend comes from the code and is open to everyone** (owner, 2026-10-16). `/legend` opens, for any user of the workspace, a modal that explains every reaction. Its rows are the states of Ignite's contract in order, each with its one-sentence meaning kept beside the state there, and the emoji of the Slack connector's mapping; renaming or adding a state or an emoji changes the legend with no other edit.
 - **The status follows the thread's latest message** (owner, 2026-10-16), the bot's own replies included, so the owner finds it at the bottom of the thread. The message it leaves keeps the task emoji it shows: the owner chose a history of ✅ ⚠️ ❓ ⏹️ per message over a single indicator. A later turn's agent state hides a task on the latest message until the status moves on, because agent and task never show together.
+- **Transcription is automatic before model launch** (owner, 2026-10-16). Incoming audio shows `transcribing` in the animated right-hand layer during download and transcription, with the left-hand system state unchanged. It uses the configured transcriber, requires no agent command, and ends at model launch or a processing failure.
 - **Waiting on workers is an agent state.** It is not a task or system state: a turn ending `waiting_workers` shows the agent waiting, ticking slowly, until the next turn of that conversation starts or the work stops waiting (stopped or held).
 
 ## Payment gate
