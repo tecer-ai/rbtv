@@ -781,12 +781,16 @@ const effortMap = (rungs) => rungs.map((rung, i) => `${i + 1}${i === rungs.lengt
   const folder = mkFolder('handle');
   const home = mkFolder('handle-home');
   // a launch that fails to spawn still emits the handle first (emitted before the spawn)
-  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi'], {
-    encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv() },
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', '\n  Review the plan  \nsecond line'], {
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv(), RBTV_AGENT_HOME: '/agents/parent' },
   });
   const line = res.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
   assert.ok(line, `no handle line on stderr: ${res.stderr}`);
   const h = JSON.parse(line.slice('cast: handle '.length));
+  // who launched it and what for: the launching agent's home, no rbtv agent launched, the task's first line
+  assert.strictEqual(h.launcher, '/agents/parent');
+  assert.strictEqual(h.launched, null);
+  assert.strictEqual(h.task, 'Review the plan');
   assert.strictEqual(h.harness, 'claude');
   assert.strictEqual(h.model, claudeModel.model);
   assert.strictEqual(h.folder, folder);
@@ -797,12 +801,13 @@ const effortMap = (rungs) => rungs.map((rung, i) => `${i + 1}${i === rungs.lengt
   const fd = fs.openSync(capture, 'w');
   const redirected = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi'], {
     encoding: 'utf8', stdio: ['pipe', fd, 'pipe'],
-    env: { ...process.env, ...homeEnv(mkFolder('handle-home-redirect')), PATH: pathEnv() },
+    env: { ...process.env, ...homeEnv(mkFolder('handle-home-redirect')), PATH: pathEnv(), RBTV_AGENT_HOME: '' },
   });
   fs.closeSync(fd);
   const redLine = redirected.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
   assert.ok(redLine, `no handle line on stderr: ${redirected.stderr}`);
   const redHandle = JSON.parse(redLine.slice('cast: handle '.length));
+  assert.strictEqual(redHandle.launcher, null, 'outside an agent\'s turn the launcher is null');
   assert.ok(redHandle.out && fs.realpathSync(redHandle.out) === fs.realpathSync(capture),
     `handle must record the stdout capture file: ${redLine}`);
   assert.ok(/^[0-9a-f-]{36}$/.test(h.session), `claude session must be a minted uuid: ${h.session}`);

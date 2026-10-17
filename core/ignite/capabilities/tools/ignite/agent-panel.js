@@ -2,17 +2,20 @@
 
 // The /agent panel: the owner types /agent in an agent's channel, or in the app's direct messages for
 // config.dmAgent, and a modal shows that agent. Tab buttons redraw it in place: Configuration (Overview,
-// Installed, Prompt) and State (Board, Timers). It reads the agent's agent.json, prompt.md, board file and
-// schedule rows, and changes nothing.
+// Installed, Prompt), State (Board, Timers) and Work (Tasks, Sub-agents). It reads the agent's agent.json,
+// prompt.md, board file, its store (schedules, open work, the running turn, progress notes) and cast's handle
+// registry, and changes nothing.
 //
 // API
-// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }
-//   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null.
+// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }
+//   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null;
+//   launches() → cast's launches, each with alive (default: the handle registry, each process checked); now() → ms.
 //   ack answers a /agent slash command at once: a refusal for anyone but the owner, or where no agent answers;
 //   null otherwise, and for anything else. handle then opens the panel with the command's trigger_id, or, for a
 //   tab button pressed inside the panel, redraws it with views.update. Both re-check the owner; anyone else's
 //   button changes nothing. handle never rejects: a failed Slack call is logged as { event: 'agent-panel' }.
-// agentView({ slug, home, store, tab }) → the panel's modal on one tab; an unknown tab shows the first.
+// agentView({ slug, home, store, tab, launches?, now? }) → the panel's modal on one tab; an unknown tab shows the first.
+// castLaunches() → every launch in cast's handle registry, its latest row per process, with alive.
 // agentOf(config, payload) → the slug a slash command's channel answers to, or null.
 // TABS — the tab ids, in order, each with its group and label.
 
@@ -20,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
+const { readHandles, procStarts } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const { agentHome } = require('./config.js');
 const { boardPath } = require('./board.js');
 const { plain, section, context, esc, modal } = require('./blocks.js');
@@ -34,6 +38,8 @@ const TABS = Object.freeze([
   { id: 'prompt', group: 'Configuration', label: 'Prompt' },
   { id: 'board', group: 'State', label: 'Board' },
   { id: 'timers', group: 'State', label: 'Timers' },
+  { id: 'tasks', group: 'Work', label: 'Tasks' },
+  { id: 'subagents', group: 'Work', label: 'Sub-agents' },
 ]);
 const GROUPS = [...new Set(TABS.map((tab) => tab.group))];
 // Slack's limits: a modal's title, the characters of a section, the blocks of a view.
@@ -42,6 +48,11 @@ const SECTION_CHARS = 3000;
 const MAX_BLOCKS = 100;
 // The kinds of file the installer records in agent.json, by its method name, and the label each is shown with.
 const KINDS = [['skill', 'Skills'], ['rule', 'Rules'], ['tool', 'Tools'], ['command', 'Commands']];
+// Work that is not finished, and how each state reads.
+const OPEN_WORK = { open: 'In progress', continue: 'Continuing', waiting_owner: 'Waiting for you', waiting_workers: 'Waiting for workers', held: 'Held after failures' };
+// How many notes each task shows, and how many ended sub-agents.
+const NOTES_SHOWN = 3;
+const ENDED_SHOWN = 15;
 
 function agentOf(config, payload) {
   const routed = config.routes?.[payload.channel_id];
@@ -88,6 +99,33 @@ function installed(home) {
   return { packs: Array.isArray(record.packs) ? record.packs : [], names };
 }
 
+// How long ago a moment was, in the largest whole unit.
+function ago(ms, now) {
+  const minutes = Math.max(0, Math.round((now - ms) / 60000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+}
+
+function cut(text, chars) {
+  const value = String(text ?? '');
+  return value.length > chars ? `${value.slice(0, chars - 1)}…` : value;
+}
+
+// A conversation's thread in Slack, or words saying it has none yet.
+function threadLink(store, key) {
+  const row = store.getConversation(key);
+  return row?.channel && row.root_ts ? `<https://app.slack.com/archives/${row.channel}/p${row.root_ts.replace('.', '')}|thread>` : 'no thread yet';
+}
+
+function castLaunches() {
+  const latest = new Map(readHandles().map((row) => [`${row.pid}:${row.start}`, row]));
+  const rows = [...latest.values()];
+  const starts = procStarts(rows.filter((row) => row.start != null).map((row) => row.pid));
+  return rows.map((row) => ({ ...row, alive: row.start != null && starts.get(row.pid) === row.start }));
+}
+
 // A timer's next fire in its own zone; a timer kept at a fixed offset (`fixed`, `Z`, `-03:00`) is shown in UTC.
 function when(ms, timeZone) {
   if (ms == null) return 'not scheduled';
@@ -129,6 +167,41 @@ const BODY = {
       ...(row.subject && row.note ? [esc(row.note)] : []),
     ].join('\n')).join('\n\n'));
   },
+  tasks(agent, store, { now }) {
+    if (!store) return [section('This agent has no Ignite store, so it has no tasks.')];
+    const run = store.liveRun();
+    const head = run
+      ? `*Running now* in a ${threadLink(store, run.conversation_key)} · ${esc(run.launch_snapshot?.model || '?')} ${esc(run.launch_snapshot?.effort || '')} · started ${ago(run.started_at, now)}`
+      : '*Running now:* nothing';
+    const open = store.listWork().filter((work) => OPEN_WORK[work.state])
+      .sort((a, b) => (Number(b.conversation_key === run?.conversation_key) - Number(a.conversation_key === run?.conversation_key)) || (b.updated_at - a.updated_at));
+    const tasks = open.map((work) => {
+      const notes = store.listNotes(work.conversation_key, NOTES_SHOWN);
+      return section([
+        `*${OPEN_WORK[work.state]}*${work.conversation_key === run?.conversation_key ? ' · running' : ''} · ${threadLink(store, work.conversation_key)} · updated ${ago(work.updated_at, now)}`,
+        esc(cut(work.summary || 'No summary yet.', 900)),
+        ...(work.next_step ? [`_Next:_ ${esc(cut(work.next_step, 400))}`] : []),
+        ...((work.workers || []).length ? [`_Workers:_ ${work.workers.map((w) => `${esc(w.ref)} (${esc(cut(w.kind, 80))})`).join(', ')}`] : []),
+        ...notes.map((note) => `• ${esc(note.text)} _(${ago(note.created_at, now)})_`),
+      ].join('\n'));
+    });
+    return [section(head), ...(tasks.length ? tasks : [section('No open tasks.')])];
+  },
+  subagents(agent, store, { launches, now }) {
+    const mine = launches().filter((row) => row.launcher && path.resolve(row.launcher) === path.resolve(agent.home))
+      .sort((a, b) => (Number(b.alive) - Number(a.alive)) || (b.t0 - a.t0));
+    const alive = mine.filter((row) => row.alive);
+    const ended = mine.filter((row) => !row.alive).slice(0, ENDED_SHOWN);
+    const line = (row) => [
+      `*${esc(row.launched ? path.basename(row.launched) : row.tag || 'worker')}* · ${esc(row.harness)} ${esc(row.model)} · started ${ago(row.t0, now)}`,
+      esc(row.task || 'No task recorded.'),
+    ].join('\n');
+    return [
+      section(alive.length ? `*Running* (${alive.length})\n\n${alive.map(line).join('\n\n')}` : '*Running:* none'),
+      ...(ended.length ? sections(`*Ended* (last ${ended.length} of the past 7 days)\n\n${ended.map(line).join('\n\n')}`) : []),
+      context('Sub-agents launched through cast in this agent\'s turns. Sub-agents a harness starts inside itself are not recorded.'),
+    ];
+  },
 };
 
 // One row of tab buttons; each button's value is the tab it opens. `row` keeps action ids unique per row.
@@ -145,26 +218,26 @@ function tabButtons(row, tabs) {
   };
 }
 
-function agentView({ slug, home, store, tab }) {
+function agentView({ slug, home, store, tab, launches = castLaunches, now = Date.now() }) {
   const current = TABS.find((t) => t.id === tab) || TABS[0];
   const read = readAgent(home);
   const groups = GROUPS.map((group) => ({ id: TABS.find((t) => t.group === group).id, label: group, selected: group === current.group }));
   const subTabs = TABS.filter((t) => t.group === current.group).map((t) => ({ ...t, selected: t === current }));
   const nav = [tabButtons('group', groups), tabButtons('tab', subTabs), { type: 'divider' }];
-  const body = read.agent ? BODY[current.id](read.agent, store) : [section(`This agent cannot be read: ${esc(read.why)}`)];
+  const body = read.agent ? BODY[current.id](read.agent, store, { launches, now }) : [section(`This agent cannot be read: ${esc(read.why)}`)];
   const room = MAX_BLOCKS - nav.length;
   const blocks = body.length > room ? [...body.slice(0, room - 1), context('Cut here: Slack shows at most 100 blocks.')] : body;
   const name = read.agent?.externalName || slug;
   return modal(VIEW, name.slice(0, TITLE_CHARS), [...nav, ...blocks], { metadata: slug });
 }
 
-function createAgentPanel({ slack, config, store, log = () => {} } = {}) {
+function createAgentPanel({ slack, config, store, log = () => {}, launches = castLaunches, now = Date.now } = {}) {
   function note(fields) {
     try { log({ event: 'agent-panel', ...fields }); } catch { /* the panel never fails on a log */ }
   }
 
   function view(slug, tab) {
-    return agentView({ slug, home: agentHome(config(), slug), store: store(slug), tab });
+    return agentView({ slug, home: agentHome(config(), slug), store: store(slug), tab, launches, now: now() });
   }
 
   function ack(type, payload = {}) {
@@ -197,4 +270,4 @@ function createAgentPanel({ slack, config, store, log = () => {} } = {}) {
   return { ack, handle };
 }
 
-module.exports = { createAgentPanel, agentView, agentOf, TABS };
+module.exports = { createAgentPanel, agentView, agentOf, castLaunches, TABS };

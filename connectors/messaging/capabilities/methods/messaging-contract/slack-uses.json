@@ -1,6 +1,6 @@
 {
   "files": {
-    "agent-panel.js": "65fd3ae7c3e4893293768f4f00e210ff39f863547455c2f43f9fbfa6df7b4937",
+    "agent-panel.js": "b913be3e5f408992d701aa0b9e088cc202c18a2e5dc83173c16dfd712f1ea52c",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
     "daemon.js": "db31d402beb3b000230f33e698dfccd58e6572ef0991448778ccca4d948be60d",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
@@ -15,19 +15,25 @@
   "uses": [
     {
       "file": "agent-panel.js",
-      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "agent-panel.js",
-      "line": "//   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null.",
+      "line": "//   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null;",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "agent-panel.js",
-      "line": "function createAgentPanel({ slack, config, store, log = () => {} } = {}) {",
+      "line": "return row?.channel && row.root_ts ? `<https://app.slack.com/archives/${row.channel}/p${row.root_ts.replace('.', '')}|thread>` : 'no thread yet';",
+      "nth": 0,
+      "kind": "path"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "function createAgentPanel({ slack, config, store, log = () => {}, launches = castLaunches, now = Date.now } = {}) {",
       "nth": 0,
       "kind": "binding"
     },

@@ -1341,6 +1341,32 @@ test('ignite status: refuses an unknown state, outside a turn and a missing --me
   }
 });
 
+test('ignite status --note keeps one line for the /agent panel, with a state or alone, and refuses what it cannot keep', async () => {
+  const box = turnHome();
+  try {
+    const env = { RBTV_AGENT_HOME: box.home, IGNITE_CONVERSATION: box.key };
+    const both = status(['making', '--note', '  Writing the Work tab  '], env);
+    assert.equal(both.code, 0, both.err);
+    assert.equal(both.out, 'making shown on 3.3\nnote saved\n');
+    assert.equal(box.store.getLiveStatus('C1', '3.3').agent, 'making');
+    const alone = status(['--note', 'Running the suites', '--json'], env);
+    assert.deepEqual(JSON.parse(alone.out), { state: null, message: null, note: true });
+    assert.deepEqual(box.store.listNotes(box.key).map((row) => row.text), ['Running the suites', 'Writing the Work tab']);
+    const before = box.store.liveStatuses().map((row) => row.rev).join();
+    assert.match(status(['--note', 'two\nlines'], env).err, /^--note takes one line\n/);
+    assert.match(status(['--note', 'x'.repeat(301)], env).err, /^--note takes at most 300 characters; this one has 301\n/);
+    assert.match(status(['--note', 'a', '--task', 'done', '--message', '1.1'], env).err, /^--note goes with a state word or alone, not with --task\n/);
+    assert.match(status(['thinking', '--note', 'elsewhere'], { ...env, IGNITE_CONVERSATION: 'T1:C9:9.9' }).err, /the running turn belongs to T1:C1:1.1/);
+    assert.equal(box.store.listNotes(box.key).length, 2);
+    assert.equal(box.store.listNotes('T1:C9:9.9').length, 0);
+    assert.equal(box.store.liveStatuses().map((row) => row.rev).join(), before);
+    assert.match(status(['-h'], env).out, /ignite status --note <text>/);
+  } finally {
+    box.store.close();
+    fs.rmSync(box.home, { recursive: true, force: true });
+  }
+});
+
 test('ignite status: declares the running turn\'s state on the latest message and sets an earlier task by either ts', async () => {
   const box = turnHome();
   try {
@@ -1352,7 +1378,7 @@ test('ignite status: declares the running turn\'s state on the latest message an
       assert.equal(box.store.getLiveStatus('C1', '3.3').agent, state);
     }
     const json = status(['thinking', '--json'], env);
-    assert.deepEqual(JSON.parse(json.out), { state: 'thinking', message: '3.3' });
+    assert.deepEqual(JSON.parse(json.out), { state: 'thinking', message: '3.3', note: false });
     assert.deepEqual(layers(box.store, '1.5'), { system: null, agent: null, task: 'question' });
     // The owner message's ts finds the reply that keeps its task; the reply's own ts finds it too.
     const marked = status(['--task', 'done', '--message', '1.1'], env);

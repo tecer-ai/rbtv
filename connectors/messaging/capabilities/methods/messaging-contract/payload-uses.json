@@ -1,6 +1,6 @@
 {
   "files": {
-    "agent-panel.js": "65fd3ae7c3e4893293768f4f00e210ff39f863547455c2f43f9fbfa6df7b4937",
+    "agent-panel.js": "b913be3e5f408992d701aa0b9e088cc202c18a2e5dc83173c16dfd712f1ea52c",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "payment-panel.js": "c9b997327a50b72254fa7dca4bcf1a5cee07c845096f9877a8dea7faa268a500",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a"
@@ -8,15 +8,15 @@
   "uses": [
     {
       "file": "agent-panel.js",
-      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 0,
-      "reads": []
+      "reads": "comment"
     },
     {
       "file": "agent-panel.js",
-      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 1,
-      "reads": []
+      "reads": "comment"
     },
     {
       "file": "agent-panel.js",
@@ -120,8 +120,7 @@
       "line": "if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;",
       "nth": 0,
       "reads": [
-        "type",
-        "view.callback_id"
+        "type"
       ]
     },
     {
@@ -129,7 +128,6 @@
       "line": "if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;",
       "nth": 1,
       "reads": [
-        "type",
         "view.callback_id"
       ]
     },
@@ -152,8 +150,7 @@
       "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
       "nth": 0,
       "reads": [
-        "view.id",
-        "view.private_metadata"
+        "view.id"
       ]
     },
     {
@@ -161,7 +158,6 @@
       "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
       "nth": 1,
       "reads": [
-        "view.id",
         "view.private_metadata"
       ]
     },

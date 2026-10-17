@@ -167,7 +167,7 @@ The setting applies from the next turn in every conversation of that agent.
 
 ## Agent panel
 
-`/agent` opens, for the owner only, a modal about the agent of the channel it is typed in: the agent `routes` maps the channel to, or `dmAgent` in a direct message. Its tabs read the agent's `agent.json`, `prompt.md`, `_artifacts/board.md` and schedule rows, and change nothing. Anyone else, and a channel no agent answers in, gets a one-line refusal. **Owner setup:** in the Slack app (api.slack.com), under Slash Commands, create `/agent` with no request URL, as for `/payments`; reinstall the app if Slack asks. A Slack call that fails is logged as `{ event: 'agent-panel', action: 'failed' }`; another user's tab button as `{ event: 'agent-panel', action: 'refused' }`.
+`/agent` opens, for the owner only, a modal about the agent of the channel it is typed in: the agent `routes` maps the channel to, or `dmAgent` in a direct message. Its tabs read the agent's `agent.json`, `prompt.md`, `_artifacts/board.md`, its store (schedules, open work, the running turn, the `notes` table `ignite status --note` writes) and cast's handle registry (`~/.cast/handles.jsonl`, the launches whose `launcher` is the agent's folder), and change nothing. A launch made before cast recorded `launcher` is not listed as anyone's sub-agent. Anyone else, and a channel no agent answers in, gets a one-line refusal. **Owner setup:** in the Slack app (api.slack.com), under Slash Commands, create `/agent` with no request URL, as for `/payments`; reinstall the app if Slack asks. A Slack call that fails is logged as `{ event: 'agent-panel', action: 'failed' }`; another user's tab button as `{ event: 'agent-panel', action: 'refused' }`.
 
 ## Payments
 

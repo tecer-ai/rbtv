@@ -6,6 +6,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { createAgentPanel, agentView, TABS } = require('./agent-panel.js');
 const { Store } = require('./store.js');
+const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
+
+// Models by property, never by name (cast's test_route.js): the agent's model, and two worker models.
+const CLAUDE = example('a claude model', (m) => m.harness === 'claude');
+const WORKER = example('a codex model', (m) => m.harness === 'codex');
+const OTHER = example('a second claude model', (m) => m.harness === 'claude', [CLAUDE]);
 
 const failures = [];
 let passed = 0;
@@ -35,7 +41,7 @@ function installation({ prompt = '# Role\n\nYou are **Fabinho**. See [docs](http
     return home;
   };
   const home = agent('developer', {
-    name: 'developer', external_name: 'Fabinho', avatar: AVATAR, harness: 'claude', model: 'opus-5-5', effort: 'medium',
+    name: 'developer', external_name: 'Fabinho', avatar: AVATAR, harness: CLAUDE.harness, model: CLAUDE.model, effort: 'medium',
     description: 'Architecture and development.', packs: ['foundations', 'ignite'],
     components: {
       'core/rbtv': { selected: { framework: { method: 'skill' }, 'agent-folder': { method: 'rule' } } },
@@ -43,7 +49,7 @@ function installation({ prompt = '# Role\n\nYou are **Fabinho**. See [docs](http
     },
   }, prompt);
   if (board != null) fs.writeFileSync(path.join(home, '_artifacts', 'board.md'), board);
-  agent('master', { name: 'master', harness: 'codex', model: 'gpt-5', effort: 'high' }, 'Master prompt.\n');
+  agent('master', { name: 'master', harness: WORKER.harness, model: WORKER.model, effort: 'high' }, 'Master prompt.\n');
   const config = { workspace, routes: { C1: 'developer' }, dmAgent: 'master', slack: { ownerUserId: 'UOWNER', team: 'T1' } };
   const store = new Store(path.join(workspace, 'developer.sqlite'));
   return { workspace, home, config, store };
@@ -93,7 +99,7 @@ async function main() {
     assert.equal(view.private_metadata, 'developer');
     assert.equal(view.blocks[3].accessory.image_url, AVATAR);
     const fields = view.blocks[4].fields.map((field) => field.text);
-    assert.deepEqual(fields, ['*Harness*\nclaude', '*Model*\nopus-5-5', '*Effort*\nmedium', '*Voice*\nnone']);
+    assert.deepEqual(fields, [`*Harness*\n${CLAUDE.harness}`, `*Model*\n${CLAUDE.model}`, '*Effort*\nmedium', '*Voice*\nnone']);
     const primary = view.blocks.slice(0, 2).flatMap((row) => row.elements.filter((b) => b.style === 'primary').map((b) => b.text.text));
     assert.deepEqual(primary, ['Configuration', 'Overview']);
   });
@@ -104,7 +110,7 @@ async function main() {
     const { panel } = panelFor(inst, slack);
     await panel.handle('slash_commands', { command: '/agent', channel_id: 'D9', channel_name: 'directmessage', trigger_id: 't', ...OWNER });
     assert.equal(slack.calls[0].args[1].private_metadata, 'master');
-    assert.match(texts(slack.calls[0].args[1]), /\*Model\*\ngpt-5/);
+    assert.ok(texts(slack.calls[0].args[1]).includes(`*Model*\n${WORKER.model}`));
   });
 
   await test('anyone but the owner is refused at the ACK and nothing opens', async () => {
@@ -218,6 +224,59 @@ async function main() {
     assert.match(texts(agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'overview' })), /This agent cannot be read: .*cannot be read/);
   });
 
+  await test('Tasks shows the running turn first, every open task with its state, thread, workers and newest notes, and no finished work', async () => {
+    const inst = installation();
+    const NOW = Date.UTC(2026, 9, 17, 12);
+    const store = inst.store;
+    const conv = (ts) => {
+      const key = `T1:C1:${ts}`;
+      store.upsertConversation({ key, agent: 'developer', workspace: 'T1', channel: 'C1', rootTs: ts });
+      return key;
+    };
+    const work = (id, key, state, fields = {}) => store.db.prepare(`INSERT INTO work(id, conversation_key, state, summary, next_step, workers, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, key, state, fields.summary ?? null, fields.next ?? null, JSON.stringify(fields.workers ?? []), fields.at ?? NOW - 3600000);
+    const asking = conv('1.1');
+    const waiting = conv('2.2');
+    const running = conv('3.3');
+    work('w1', asking, 'waiting_owner', { summary: 'Asked <you> about the deploy', next: 'Deploy after the answer', at: NOW - 600000 });
+    work('w2', waiting, 'waiting_workers', { summary: 'Canvas test running', workers: [{ ref: 'canvas-check', kind: 'cast worker' }], at: NOW - 60000 });
+    work('w3', running, 'open', { summary: 'Building the Work tab', at: NOW - 7200000 });
+    work('w4', conv('4.4'), 'completed', { summary: 'Finished long ago' });
+    for (const [text, at] of [['one', 1], ['two', 2], ['three', 3], ['four', 4]]) store.addNote({ conversationKey: running, text: `note ${text}`, createdAt: NOW - (10 - at) * 60000 });
+    store.liveRun = () => ({ conversation_key: running, started_at: NOW - 120000, launch_snapshot: { model: CLAUDE.model, effort: 'medium' } });
+    const view = agentView({ slug: 'developer', home: inst.home, store, tab: 'tasks', now: NOW });
+    const body = view.blocks.slice(3).map((block) => block.text.text);
+    assert.equal(body[0], `*Running now* in a <https://app.slack.com/archives/C1/p33|thread> · ${CLAUDE.model} medium · started 2 min ago`);
+    assert.equal(body.length, 4, body.join('\n---\n'));
+    assert.match(body[1], /^\*In progress\* · running · <https:\/\/app\.slack\.com\/archives\/C1\/p33\|thread> · updated 2 h ago\nBuilding the Work tab\n• note four _\(6 min ago\)_\n• note three _\(7 min ago\)_\n• note two _\(8 min ago\)_$/);
+    assert.match(body[2], /^\*Waiting for workers\* · <https:\/\/app\.slack\.com\/archives\/C1\/p22\|thread> · updated 1 min ago\nCanvas test running\n_Workers:_ canvas-check \(cast worker\)$/);
+    assert.match(body[3], /^\*Waiting for you\* · .* · updated 10 min ago\nAsked &lt;you&gt; about the deploy\n_Next:_ Deploy after the answer$/);
+    assert.ok(!body.join('\n').includes('Finished long ago'));
+    store.liveRun = () => null;
+    assert.equal(agentView({ slug: 'developer', home: inst.home, store, tab: 'tasks', now: NOW }).blocks[3].text.text, '*Running now:* nothing');
+    assert.match(texts(agentView({ slug: 'developer', home: inst.home, store: null, tab: 'tasks' })), /no Ignite store, so it has no tasks/);
+  });
+
+  await test('Sub-agents lists this agent\'s launches, running first, and none of another agent\'s', async () => {
+    const inst = installation();
+    const NOW = Date.UTC(2026, 9, 17, 12);
+    const other = path.join(inst.workspace, '.rbtv', 'agents', 'master');
+    const launches = () => [
+      { pid: 1, harness: OTHER.harness, model: OTHER.model, launcher: inst.home, launched: null, tag: 'scratch [cast:ab12]', task: 'Check the canvas API', t0: NOW - 3600000, alive: false },
+      { pid: 2, harness: WORKER.harness, model: WORKER.model, launcher: `${inst.home}/`, launched: '/x/.rbtv/agents/tester', task: 'Test slice 1', t0: NOW - 300000, alive: true },
+      { pid: 3, harness: CLAUDE.harness, model: CLAUDE.model, launcher: other, launched: null, task: 'Master\'s worker', t0: NOW, alive: true },
+      { pid: 4, harness: CLAUDE.harness, model: CLAUDE.model, launcher: null, launched: inst.home, task: 'The agent\'s own turn', t0: NOW, alive: true },
+    ];
+    const view = agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'subagents', launches, now: NOW });
+    const text = texts(view);
+    assert.ok(text.includes(`*Running* (1)\n\n*tester* · ${WORKER.harness} ${WORKER.model} · started 5 min ago\nTest slice 1`), text);
+    assert.ok(text.includes(`*Ended* (last 1 of the past 7 days)\n\n*scratch [cast:ab12]* · ${OTHER.harness} ${OTHER.model} · started 1 h ago\nCheck the canvas API`), text);
+    assert.ok(!text.includes('Master') && !text.includes('own turn'));
+    const none = texts(agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'subagents', launches: () => [], now: NOW }));
+    assert.match(none, /\*Running:\* none/);
+    assert.ok(!none.includes('*Ended*'));
+  });
+
   await test('a failed Slack call is logged and never thrown', async () => {
     const inst = installation();
     const slack = fakeSlack({ fail: true });
@@ -226,7 +285,7 @@ async function main() {
     assert.deepEqual(logs, [{ event: 'agent-panel', action: 'failed', message: 'slack down' }]);
   });
 
-  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers']);
+  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers', 'tasks', 'subagents']);
   console.log(`${passed} passed, ${failures.length} failed`);
   if (failures.length) process.exit(1);
 }

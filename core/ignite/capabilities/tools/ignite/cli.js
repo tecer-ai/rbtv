@@ -38,7 +38,7 @@ const VERBS = {
   'work stop': { options: [], words: 1 },
   wake: { options: ['conversation', 'note', 'work'], words: 0 },
   post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
-  status: { options: ['task', 'message'], words: 1 },
+  status: { options: ['task', 'message', 'note'], words: 1 },
   'payment request': { options: ['connector', 'provider', 'request'], words: 0 }, // provider: the older spelling
   'payment show': { options: [], words: 1 },
   'payment list': { options: ['state'], words: 0 },
@@ -69,8 +69,9 @@ Timers, work, messages and memory
   work           Show, retry, resume, or stop an assignment.
   wake           Enqueue a continuation when a worker finishes.
   post           Queue a Slack message in this agent's channel.
-  status         Show the owner what kind of work this turn is doing, or
-                 set an earlier owner message's task state.
+  status         Show the owner what kind of work this turn is doing, keep
+                 a note for the /agent panel, or set an earlier owner
+                 message's task state.
   payment        Ask the payment gate to pay, and read or withdraw this
                  agent's payment requests.
   board          Write or close a subject on the board.
@@ -639,16 +640,24 @@ function cmdRemember(rest, flags, deps) {
   }
 }
 
+// The most characters a progress note keeps: one line the /agent panel shows whole.
+const NOTE_CHARS = 300;
+
 // The words of status are checked before the home is opened: a refused one changes nothing.
 function checkStatus({ opts, positionals }, deps) {
   const again = '\nNothing changed.\nignite status -h';
+  if (opts.note != null) {
+    if (/[\r\n]/.test(opts.note)) fail(`--note takes one line${again}`);
+    if ([...opts.note].length > NOTE_CHARS) fail(`--note takes at most ${NOTE_CHARS} characters; this one has ${[...opts.note].length}${again}`);
+    if (opts.task != null || opts.message != null) fail(`--note goes with a state word or alone, not with --task${again}`);
+  }
   if (opts.task != null || opts.message != null) {
     if (positionals.length) fail(`unexpected word '${positionals[0]}': status --task takes no state word${again}`);
     if (opts.task == null) fail(`--message requires --task ${live.TASK.join('|')}${again}`);
     if (opts.message == null) fail(`--task requires --message <ts>, the Slack timestamp of an earlier owner message or reply${again}`);
     if (!live.TASK.includes(opts.task)) fail(`unknown task state: ${opts.task}\nchoose from ${live.TASK.join(', ')}${again}`);
   } else if (!positionals.length) {
-    fail(`status requires a state: ${live.DECLARED.join(', ')}${again}`);
+    if (opts.note == null) fail(`status requires a state: ${live.DECLARED.join(', ')}, or --note <text>${again}`);
   } else if (!live.DECLARED.includes(positionals[0])) {
     fail(`unknown state: ${positionals[0]}\nchoose from ${live.DECLARED.join(', ')}${again}`);
   }
@@ -664,12 +673,21 @@ function cmdStatus(ctx, flags, deps, { opts, positionals }) {
     emit(deps, flags, { task: row.kept, message: row.ts }, `task ${row.kept} shown on ${row.ts}\n`);
     return 0;
   }
-  const row = live.declare(ctx.store, key, positionals[0]);
-  if (!row) {
-    emit(deps, flags, { state: positionals[0], message: null }, 'nothing shown: this turn answers no owner message\n');
+  // A note is kept with the conversation for the owner's /agent panel; it shows nothing in the thread. It is
+  // saved after the declaration, so a refused declaration saves no note either.
+  const note = opts.note != null;
+  const noted = note ? 'note saved\n' : '';
+  const row = positionals.length ? live.declare(ctx.store, key, positionals[0]) : null;
+  if (note) ctx.store.addNote({ conversationKey: ctx.store.followConversation(key)?.key || key, text: opts.note.trim() });
+  if (!positionals.length) {
+    emit(deps, flags, { state: null, message: null, note }, noted);
     return 0;
   }
-  emit(deps, flags, { state: row.agent, message: row.ts }, `${row.agent} shown on ${row.ts}\n`);
+  if (!row) {
+    emit(deps, flags, { state: positionals[0], message: null, note }, `nothing shown: this turn answers no owner message\n${noted}`);
+    return 0;
+  }
+  emit(deps, flags, { state: row.agent, message: row.ts, note }, `${row.agent} shown on ${row.ts}\n${noted}`);
   return 0;
 }
 

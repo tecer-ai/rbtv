@@ -71,6 +71,8 @@
 //   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it. A row
 //   is inserted with shown {} (nothing shown yet); a NULL shown, as in a row made before the column, is
 //   an unknown display
+// addNote({ conversationKey, text, createdAt? }) — one progress note an agent wrote in a turn of that conversation
+// listNotes(conversationKey, limit = 5) — its newest notes first
 // getRun(runId) — a run with its queue row's conversation_key, work_id and kind, or null
 // ownerTs(workId) — Slack ts of the latest owner message queued for that work, or null
 // pendingOwnerTs(conversationKey) — Slack ts of the conversation's owner messages that wait for a turn (queue
@@ -257,6 +259,13 @@ class Store {
       );
       CREATE INDEX IF NOT EXISTS live_status_rev ON live_status(rev);
       CREATE INDEX IF NOT EXISTS live_status_conversation ON live_status(conversation_key);
+      CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_key TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS notes_conversation ON notes(conversation_key, id);
       CREATE TABLE IF NOT EXISTS conversation_moves (
         old_key TEXT PRIMARY KEY,
         new_key TEXT NOT NULL,
@@ -906,7 +915,7 @@ class Store {
     if (!row) throw new Error('unknown conversation');
     this.db.prepare(`INSERT INTO conversations(key, agent, workspace, channel, root_ts, activated, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(newKey, row.agent, row.workspace, row.channel, row.root_ts, row.activated, Date.now());
-    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions', 'live_status']) {
+    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions', 'live_status', 'notes']) {
       this.db.prepare(`UPDATE ${table} SET conversation_key=? WHERE conversation_key=?`).run(newKey, oldKey);
     }
     // A key held outside this store (a payment's) still finds the conversation: every earlier key points at the newest.
@@ -1031,6 +1040,17 @@ class Store {
 
   setLiveShown(channel, ts, shown) {
     this.db.prepare('UPDATE live_status SET shown=? WHERE channel=? AND ts=?').run(json(shown), channel, ts);
+  }
+
+  addNote({ conversationKey: conversationKeyValue, text, createdAt = Date.now() }) {
+    if (!conversationKeyValue || !text) throw new Error('note conversation and text required');
+    const { lastInsertRowid } = this.db.prepare('INSERT INTO notes(conversation_key, text, created_at) VALUES (?, ?, ?)')
+      .run(conversationKeyValue, text, createdAt);
+    return { id: Number(lastInsertRowid), conversation_key: conversationKeyValue, text, created_at: createdAt };
+  }
+
+  listNotes(conversationKeyValue, limit = 5) {
+    return this.db.prepare('SELECT * FROM notes WHERE conversation_key=? ORDER BY id DESC LIMIT ?').all(conversationKeyValue, limit);
   }
 
   getRun(runId) {

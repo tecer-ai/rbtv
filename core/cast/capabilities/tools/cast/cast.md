@@ -271,6 +271,13 @@ changes the cap): cast sends the child SIGTERM, prints `cast: deadline` on stand
 1. A `--headed` launch or resume has no deadline: it is a person's session and lasts as long as that
 person keeps it open, which is what a session opened with `spark` relies on.
 
+### Who launched a run
+
+Every row of a launch in the handle registry also holds `launcher`, the folder of the rbtv agent whose
+turn ran cast (its `RBTV_AGENT_HOME`; `null` outside one), `launched`, the folder of the rbtv agent
+`--agent` started (`null` for a bare model), and `task`, the first line of the task with text, cut to
+200 characters (`null` without a task). Ignite's `/agent` panel lists an agent's sub-agents from them.
+
 ### The sessions a person opened
 
 The row a `--headed` launch writes to the handle registry also holds `code`, two letters, and

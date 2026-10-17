@@ -675,6 +675,7 @@ test('rekey moves conversation state but leaves every schedule row unchanged', (
   const queued = store.enqueue({ id: 'q1', conversationKey: key });
   store.recordMessage(key, ownerMessage('old', 'history'));
   store.setSession(key, 'claude', 'keep-session');
+  store.addNote({ conversationKey: key, text: 'drafting the report' });
   store.upsertSchedule({
     id: 'check', conversationKey: key, workId: queued.workId,
     cadence: 'every:1h', timezone: 'fixed-interval', nextAt: 100, note: 'details',
@@ -684,7 +685,7 @@ test('rekey moves conversation state but leaves every schedule row unchanged', (
   assert.deepEqual(store.listSchedules(), before);
   assert.ok(store.getConversation(key)); // The schedule's foreign key still has a valid routing source.
   assert.equal(store.getConversation(key).root_ts, null);
-  for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions']) {
+  for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions', 'notes']) {
     assert.equal(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE conversation_key=?`).get(key).n, 0);
     assert.ok(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE conversation_key=?`).get(bound).n > 0);
   }

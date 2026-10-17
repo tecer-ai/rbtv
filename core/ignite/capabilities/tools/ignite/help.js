@@ -291,7 +291,8 @@ Example: ignite post --thread T1:C1:123.456 --text "Check complete"
 
   status: `ignite status — show the owner what this turn is doing
 
-usage: ignite status <state> [--json]
+usage: ignite status <state> [--note <text>] [--json]
+       ignite status --note <text> [--json]
        ignite status --task (done | caveats | question | stopped) --message <ts> [--json]
 
 Run inside a turn. The owner cannot see your terminal; the waking service shows the state on
@@ -304,6 +305,10 @@ working when every turn starts. When you move to a different kind of work, decla
 The state shows on the thread's latest message until you declare another or the turn ends.
 A turn that answers no owner message (a scheduled wake) has nowhere to show it: exit 0 and
 "nothing shown: this turn answers no owner message".
+
+--note <text> keeps one line, at most 300 characters, about what you are doing now, with this
+conversation. It shows nothing in the thread: the owner reads the newest notes of each task in the
+/agent panel in Slack. Give it with a state, or alone between declarations.
 
 The task state of this turn's own message comes from RESULT_FILE: disposition completed, waiting_owner
 or stopped, and "caveats": true with completed. --task with --message sets the task state of an
@@ -319,7 +324,8 @@ turn has not finished.
 
 Uses IGNITE_CONVERSATION and the agent home, which the waking service sets inside a turn; without
 IGNITE_CONVERSATION the command is refused.
-Success: exit 0, "<state> shown on <ts>" or "task <state> shown on <ts>". --json: {state, message}
+Success: exit 0, "<state> shown on <ts>" or "task <state> shown on <ts>", then "note saved" when
+--note was given. --json: {state, message, note}; state and message are null for a note alone.
 or {task, message}. An unknown state is refused with the valid states.
 ${REFUSED_WORDS}
 No Slack request in this command.

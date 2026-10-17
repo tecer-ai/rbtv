@@ -111,6 +111,13 @@ function launch({ harness, modelId, effortWord, effortArgv, fallback, ...run }) 
   start({ harness, modelId, effortWord, effortArgv });
 }
 
+// The first line of a launch's task with text, at most TASK_CHARS characters; null without a task.
+const TASK_CHARS = 200;
+function taskLine(text) {
+  const line = String(text ?? '').split('\n').map((one) => one.trim()).find(Boolean);
+  return line ? [...line].slice(0, TASK_CHARS).join('') : null;
+}
+
 // measured 2026-08-14: --variant exists only on `opencode run`, not the TUI, so a headed OpenCode
 // start, new or resumed, passes no effort.
 const noTuiEffort = (harness, headed) => headed && harness === 'opencode';
@@ -205,6 +212,11 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
       ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${session}.jsonl`)
       : null,
     t0,
+    // Who launched it and what for, read by Ignite's /agent panel: the rbtv agent whose turn ran cast (its
+    // RBTV_AGENT_HOME, null outside one), the rbtv agent launched (null for a bare model), and the task's first line.
+    launcher: process.env.RBTV_AGENT_HOME || null,
+    launched: agentHome || null,
+    task: taskLine(promptText),
     // What opens a headed session again (lib/headed.js): its code, and the rbtv agent it ran.
     ...(headed ? { code: newCode(), agent: agentHome } : {}),
   }, !headed);
