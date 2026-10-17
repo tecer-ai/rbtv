@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createAgentPanel, agentView, TABS } = require('./agent-panel.js');
 const { Store } = require('./store.js');
+const { Gate } = require('./payments.js');
 const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
 
 // Models by property, never by name (cast's test_route.js): the agent's model, and two worker models.
@@ -277,6 +278,41 @@ async function main() {
     assert.ok(!none.includes('*Ended*'));
   });
 
+  await test('Approvals lists this agent\'s payment requests with the payment panel\'s buttons, pending first, and no one else\'s', async () => {
+    const inst = installation();
+    const gate = new Gate({ workspace: inst.workspace, now: () => Date.UTC(2026, 9, 15, 15) });
+    gate.saveSettings({ mode: 'case_by_case', limits: {} });
+    const ask = (agent, cents) => gate.request({
+      agent, conversationKey: 'T1:C1:1.1', connector: 'asaas', method: 'pix',
+      recipient: { name: 'KENU EXAMPLE SILVA', key: 'kenu@example.com', keyType: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' },
+      amountCents: cents, note: 'Owed',
+    });
+    const refused = ask('developer', 500);
+    gate.refuse(refused.id);
+    const waiting = ask('developer', 1000);
+    gate.resolved(waiting.id, { name: 'KENU EXAMPLE SILVA', document: '***.123.456-**', bank: 'Nubank', key: 'kenu@example.com', keyType: 'EMAIL' });
+    ask('sara', 2000);
+    const view = agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'payments', gate });
+    const text = texts(view);
+    assert.match(text, /\*Waiting for you\* \(1\)\n/);
+    assert.match(text, new RegExp(`\\*Payment request ${waiting.id}\\* from developer`));
+    assert.match(text, /\*Decided\* \(last 1\)/);
+    assert.match(text, new RegExp(`\\*Payment request ${refused.id}\\* from developer`));
+    assert.ok(!text.includes('from sara'));
+    const actions = view.blocks.filter((block) => block.type === 'actions').slice(2).flatMap((block) => block.elements.map((b) => [b.action_id, b.value]));
+    assert.deepEqual(actions, [['payments_approve', waiting.id], ['payments_refuse', waiting.id]]);
+    assert.match(texts(agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'payments', gate: null })), /Payments are not set up here/);
+  });
+
+  await test('redraw shows the agent panel on Approvals for its own view and nothing for another', async () => {
+    const inst = installation();
+    const { panel } = panelFor(inst, fakeSlack());
+    const view = panel.redraw({ callback_id: 'agent_panel', private_metadata: 'developer' });
+    assert.equal(view.callback_id, 'agent_panel');
+    assert.equal(view.blocks[0].elements.find((b) => b.style === 'primary').text.text, 'Approvals');
+    assert.equal(panel.redraw({ callback_id: 'payments_panel' }), null);
+  });
+
   await test('a failed Slack call is logged and never thrown', async () => {
     const inst = installation();
     const slack = fakeSlack({ fail: true });
@@ -285,7 +321,7 @@ async function main() {
     assert.deepEqual(logs, [{ event: 'agent-panel', action: 'failed', message: 'slack down' }]);
   });
 
-  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers', 'tasks', 'subagents']);
+  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers', 'tasks', 'subagents', 'payments']);
   console.log(`${passed} passed, ${failures.length} failed`);
   if (failures.length) process.exit(1);
 }

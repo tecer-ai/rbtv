@@ -104,7 +104,7 @@ The panel's interactive payloads (Slack: an `interactive` envelope). Ignite read
 | button | `actions[0].action_ts` | required | The key a replayed press is recognised by |
 | button | `trigger_id` | required | Opening the PIN form or the settings form |
 | button | `view.id` | optional | Present when pressed inside a panel: a payment form is pushed on top of it; the agent panel redraws that view |
-| button | `view.callback_id`, `view.private_metadata` | required in the agent panel | `agent_panel`, and the agent the panel shows |
+| button | `view.callback_id`, `view.private_metadata` | required in the agent panel | `agent_panel`, and the agent the panel shows; a payment button pressed there is answered by redrawing that panel |
 | button | `channel.id` | optional | Present when pressed in a thread message: a refusal is shown there to that user |
 | form (`view_submission`) | `type` | required | `view_submission` |
 | form | `user.id`, `user.team_id` or `team.id` | required | The owner check |

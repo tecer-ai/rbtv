@@ -328,9 +328,10 @@ async function startLocked(opts, workspace, held) {
     config: () => config,
     log,
     kick: () => { paymentStep(); },
+    redraw: (view) => agentPanel.redraw(view),
   });
   const legend = createLegend({ slack: () => slack, log });
-  const agentPanel = createAgentPanel({ slack: () => slack, config: () => config, store: (slug) => getStore(slug), log });
+  const agentPanel = createAgentPanel({ slack: () => slack, config: () => config, store: (slug) => getStore(slug), gate: () => gate, log });
   // Slack's interactions: the payment panel and the agent panel answer their own at the ACK; /legend needs only the bare ACK.
   const interactions = {
     ack: (type, payload) => panel.ack(type, payload) || agentPanel.ack(type, payload),

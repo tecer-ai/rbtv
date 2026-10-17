@@ -703,6 +703,35 @@ test('the thread message has Approve and Refuse while pending, and its outcome a
   assert.equal(after[1].elements[0].text, 'Refused by you.');
 });
 
+test('a request button pressed in another panel redraws that panel after a refusal and under an approval\'s form', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  for (let i = 0; i < 2; i++) gate.resolved(ask(gate).id, KENU);
+  const slack = fakeSlack();
+  const redrawn = [];
+  const panel = createPaymentPanel({
+    gate: () => gate, slack: () => slack.client, config: () => config, kick: () => {},
+    redraw: (view) => (view.callback_id === 'agent_panel' ? (redrawn.push(view.private_metadata), { callback_id: 'agent_panel', blocks: [] }) : null),
+  });
+  const other = { id: 'VA', callback_id: 'agent_panel', private_metadata: 'sara' };
+  await interact(panel, 'interactive', action(ACTION.refuse, 'P-0001', { view: other, ts: '8.1' }));
+  assert.equal(gate.get('P-0001').state, 'refused');
+  await interact(panel, 'interactive', action(ACTION.approve, 'P-0002', { view: other, ts: '8.2' }));
+  assert.equal(slack.calls.at(-1).method, 'pushView');
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: 'P-0002', id: 'VF', root: 'VA', hash: 'z' }));
+  assert.equal(gate.get('P-0002').state, 'approved');
+  const updates = slack.calls.filter((c) => c.method === 'updateView').map((c) => [c.args[0], c.args[1].callback_id]);
+  assert.deepEqual(updates, [['VA', 'agent_panel'], ['VF', VIEW.done], ['VA', 'agent_panel']]);
+  assert.deepEqual(redrawn, ['sara', 'sara']);
+  // The payments panel's own buttons still redraw the payments panel.
+  const own = fakeSlack();
+  const plainPanel = panelFor(gate, { slack: own }).panel;
+  gate.resolved(ask(gate).id, KENU);
+  await interact(plainPanel, 'interactive', action(ACTION.refuse, 'P-0003', { view: { id: 'VP', callback_id: VIEW.panel }, ts: '8.3' }));
+  assert.equal(own.calls.at(-1).args[1].callback_id, VIEW.panel);
+});
+
 test('an approval or refusal the ledger holds is shown as done when a Slack view update fails, never as nothing changed', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.setPin(PIN);

@@ -2,19 +2,22 @@
 
 // The /agent panel: the owner types /agent in an agent's channel, or in the app's direct messages for
 // config.dmAgent, and a modal shows that agent. Tab buttons redraw it in place: Configuration (Overview,
-// Installed, Prompt), State (Board, Timers) and Work (Tasks, Sub-agents). It reads the agent's agent.json,
-// prompt.md, board file, its store (schedules, open work, the running turn, progress notes) and cast's handle
-// registry, and changes nothing.
+// Installed, Prompt), State (Board, Timers), Work (Tasks, Sub-agents) and Approvals (Payments). It reads the agent's
+// agent.json, prompt.md, board file, its store (schedules, open work, the running turn, progress notes), cast's handle
+// registry and the payment ledger. It changes nothing itself: Approve and Refuse on a payment are the payment
+// panel's own buttons, handled there with its PIN.
 //
 // API
-// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }
+// createAgentPanel({ slack, config, store, gate?, log?, launches?, now? }) → { ack(type, payload), handle(type, payload), redraw(view) }
 //   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null;
-//   launches() → cast's launches, each with alive (default: the handle registry, each process checked); now() → ms.
+//   launches() → cast's launches, each with alive (default: the handle registry, each process checked); now() → ms;
+//   gate() → the payment gate, or null. redraw(view) → the agent panel a payment action was taken in, on Approvals,
+//   for the payment panel to show after it; null for any other view.
 //   ack answers a /agent slash command at once: a refusal for anyone but the owner, or where no agent answers;
 //   null otherwise, and for anything else. handle then opens the panel with the command's trigger_id, or, for a
 //   tab button pressed inside the panel, redraws it with views.update. Both re-check the owner; anyone else's
 //   button changes nothing. handle never rejects: a failed Slack call is logged as { event: 'agent-panel' }.
-// agentView({ slug, home, store, tab, launches?, now? }) → the panel's modal on one tab; an unknown tab shows the first.
+// agentView({ slug, home, store, tab, gate?, launches?, now? }) → the panel's modal on one tab; an unknown tab shows the first.
 // castLaunches() → every launch in cast's handle registry, its latest row per process, with alive.
 // agentOf(config, payload) → the slug a slash command's channel answers to, or null.
 // TABS — the tab ids, in order, each with its group and label.
@@ -27,7 +30,7 @@ const { readHandles, procStarts } = require('../../../../cast/capabilities/tools
 const { agentHome } = require('./config.js');
 const { boardPath } = require('./board.js');
 const { plain, section, context, esc, modal } = require('./blocks.js');
-const { isOwner } = require('./payment-panel.js');
+const { isOwner, promptBlocks } = require('./payment-panel.js');
 
 const COMMAND = '/agent';
 const VIEW = 'agent_panel';
@@ -40,6 +43,7 @@ const TABS = Object.freeze([
   { id: 'timers', group: 'State', label: 'Timers' },
   { id: 'tasks', group: 'Work', label: 'Tasks' },
   { id: 'subagents', group: 'Work', label: 'Sub-agents' },
+  { id: 'payments', group: 'Approvals', label: 'Payments' },
 ]);
 const GROUPS = [...new Set(TABS.map((tab) => tab.group))];
 // Slack's limits: a modal's title, the characters of a section, the blocks of a view.
@@ -53,6 +57,8 @@ const OPEN_WORK = { open: 'In progress', continue: 'Continuing', waiting_owner: 
 // How many notes each task shows, and how many ended sub-agents.
 const NOTES_SHOWN = 3;
 const ENDED_SHOWN = 15;
+// How many decided payment requests Approvals shows after the pending ones.
+const DECIDED_SHOWN = 10;
 
 function agentOf(config, payload) {
   const routed = config.routes?.[payload.channel_id];
@@ -202,6 +208,20 @@ const BODY = {
       context('Sub-agents launched through cast in this agent\'s turns. Sub-agents a harness starts inside itself are not recorded.'),
     ];
   },
+  payments(agent, store, { gate }) {
+    if (!gate) return [section('Payments are not set up here: Ignite\'s config has no payments section.')];
+    const slug = path.basename(agent.home);
+    const pending = gate.pending().filter((row) => row.agent === slug);
+    const decided = gate.list({ agent: slug, limit: DECIDED_SHOWN + pending.length }).filter((row) => row.state !== 'pending').slice(0, DECIDED_SHOWN);
+    return [
+      section(`*Waiting for you* (${pending.length})`),
+      ...(pending.length ? pending.flatMap((row) => promptBlocks(gate, row)) : [context('No payment of this agent waits for you.')]),
+      { type: 'divider' },
+      section(`*Decided* (last ${decided.length})`),
+      ...(decided.length ? decided.flatMap((row) => promptBlocks(gate, row)) : [context('None yet.')]),
+      context('Settings and every agent\'s payments: /payments. External message approvals will show here once Ignite has a message gate.'),
+    ];
+  },
 };
 
 // One row of tab buttons; each button's value is the tab it opens. `row` keeps action ids unique per row.
@@ -218,26 +238,26 @@ function tabButtons(row, tabs) {
   };
 }
 
-function agentView({ slug, home, store, tab, launches = castLaunches, now = Date.now() }) {
+function agentView({ slug, home, store, tab, gate = null, launches = castLaunches, now = Date.now() }) {
   const current = TABS.find((t) => t.id === tab) || TABS[0];
   const read = readAgent(home);
   const groups = GROUPS.map((group) => ({ id: TABS.find((t) => t.group === group).id, label: group, selected: group === current.group }));
   const subTabs = TABS.filter((t) => t.group === current.group).map((t) => ({ ...t, selected: t === current }));
   const nav = [tabButtons('group', groups), tabButtons('tab', subTabs), { type: 'divider' }];
-  const body = read.agent ? BODY[current.id](read.agent, store, { launches, now }) : [section(`This agent cannot be read: ${esc(read.why)}`)];
+  const body = read.agent ? BODY[current.id](read.agent, store, { gate, launches, now }) : [section(`This agent cannot be read: ${esc(read.why)}`)];
   const room = MAX_BLOCKS - nav.length;
   const blocks = body.length > room ? [...body.slice(0, room - 1), context('Cut here: Slack shows at most 100 blocks.')] : body;
   const name = read.agent?.externalName || slug;
   return modal(VIEW, name.slice(0, TITLE_CHARS), [...nav, ...blocks], { metadata: slug });
 }
 
-function createAgentPanel({ slack, config, store, log = () => {}, launches = castLaunches, now = Date.now } = {}) {
+function createAgentPanel({ slack, config, store, gate = () => null, log = () => {}, launches = castLaunches, now = Date.now } = {}) {
   function note(fields) {
     try { log({ event: 'agent-panel', ...fields }); } catch { /* the panel never fails on a log */ }
   }
 
   function view(slug, tab) {
-    return agentView({ slug, home: agentHome(config(), slug), store: store(slug), tab, launches, now: now() });
+    return agentView({ slug, home: agentHome(config(), slug), store: store(slug), tab, gate: gate(), launches, now: now() });
   }
 
   function ack(type, payload = {}) {
@@ -267,7 +287,11 @@ function createAgentPanel({ slack, config, store, log = () => {}, launches = cas
     }
   }
 
-  return { ack, handle };
+  function redraw(panel) {
+    return panel?.callback_id === VIEW ? view(panel.private_metadata, 'payments') : null;
+  }
+
+  return { ack, handle, redraw };
 }
 
 module.exports = { createAgentPanel, agentView, agentOf, castLaunches, TABS };

@@ -1,22 +1,22 @@
 {
   "files": {
-    "agent-panel.js": "b913be3e5f408992d701aa0b9e088cc202c18a2e5dc83173c16dfd712f1ea52c",
+    "agent-panel.js": "07af4554365b3bd800d344c4df7ee3621199509c68c3eab4b23fc5ae9abfb131",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "payment-panel.js": "c9b997327a50b72254fa7dca4bcf1a5cee07c845096f9877a8dea7faa268a500",
+    "payment-panel.js": "e39be79a7b6ec8fc3783801f3146068eff03a9289d051d4a2e0293c326fd4439",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a"
   },
   "uses": [
     {
       "file": "agent-panel.js",
-      "line": "// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createAgentPanel({ slack, config, store, gate?, log?, launches?, now? }) → { ack(type, payload), handle(type, payload), redraw(view) }",
       "nth": 0,
-      "reads": "comment"
+      "reads": []
     },
     {
       "file": "agent-panel.js",
-      "line": "// createAgentPanel({ slack, config, store, log?, launches?, now? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createAgentPanel({ slack, config, store, gate?, log?, launches?, now? }) → { ack(type, payload), handle(type, payload), redraw(view) }",
       "nth": 1,
-      "reads": "comment"
+      "reads": []
     },
     {
       "file": "agent-panel.js",
@@ -191,13 +191,13 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick?, redraw? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "reads": []
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick?, redraw? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 1,
       "reads": []
     },
@@ -436,6 +436,38 @@
     },
     {
       "file": "payment-panel.js",
+      "line": "if (inModal && payload.view.callback_id !== VIEW.panel) {",
+      "nth": 0,
+      "reads": [
+        "view.callback_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "roots.set(payload.view.id, { callback_id: payload.view.callback_id, private_metadata: payload.view.private_metadata });",
+      "nth": 0,
+      "reads": [
+        "view.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "roots.set(payload.view.id, { callback_id: payload.view.callback_id, private_metadata: payload.view.private_metadata });",
+      "nth": 1,
+      "reads": [
+        "view.callback_id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "roots.set(payload.view.id, { callback_id: payload.view.callback_id, private_metadata: payload.view.private_metadata });",
+      "nth": 2,
+      "reads": [
+        "view.private_metadata"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
       "line": "const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));",
       "nth": 0,
       "reads": [
@@ -496,10 +528,19 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => panelView(g) });",
+      "line": "if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => rootView(g, payload.view) });",
       "nth": 0,
       "reads": [
         "view.id"
+      ]
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => rootView(g, payload.view) });",
+      "nth": 1,
+      "reads": [
+        "view.callback_id",
+        "view.private_metadata"
       ]
     },
     {

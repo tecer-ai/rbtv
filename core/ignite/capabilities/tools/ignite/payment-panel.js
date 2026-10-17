@@ -5,9 +5,10 @@
 // is checked against slack.ownerUserId and slack.team, and anyone else is refused with nothing changed.
 //
 // API
-// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }
+// createPaymentPanel({ gate, slack, config, log?, kick?, redraw? }) → { ack(type, payload), handle(type, payload) }
 //   gate() → the Gate, or null when the config has no payments section; slack() → the Slack client;
-//   config() → Ignite's config; kick() asks the payment runner for a pass (an approval is sent at once).
+//   config() → Ignite's config; kick() asks the payment runner for a pass (an approval is sent at once); redraw(view)
+//   → the view of another panel whose request buttons were pressed (the agent panel), or null for the payments panel.
 //   ack and handle are slack.js connect's interactions. ack answers at once and touches neither the ledger nor
 //   Slack: a slash command's refusal, a form's field errors (not the owner, the PIN's form, an amount, the mode
 //   rules of payments.js), or, for a form that passes them, a "Checking" view in its place. handle then does the
@@ -327,7 +328,11 @@ function isOwner(config, payload) {
   return Boolean(user && user === config.slack.ownerUserId && team && team === config.slack.team);
 }
 
-function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {} } = {}) {
+function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {}, redraw = () => null } = {}) {
+  // A panel other than this one that shows request buttons (the agent panel) is redrawn as itself after an action:
+  // roots keeps, by view id, what such a panel was when a form was pushed on it.
+  const roots = new Map();
+  const rootView = (g, view) => (view && view.callback_id !== VIEW.panel && redraw(view)) || panelView(g);
   const ownerSent = (payload) => isOwner(config(), payload);
 
   function note(fields) {
@@ -364,6 +369,9 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
     const act = payload.actions?.[0];
     if (!act || !Object.values(ACTION).includes(act.action_id)) return;
     const inModal = Boolean(payload.view?.id);
+    if (inModal && payload.view.callback_id !== VIEW.panel) {
+      roots.set(payload.view.id, { callback_id: payload.view.callback_id, private_metadata: payload.view.private_metadata });
+    }
     const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));
     const tell = async (text) => {
       if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });
@@ -398,7 +406,7 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
     if (result.changed) note({ action: 'refuse', id: row.id });
     kick();
     const told = result.replay ? `${row.id}: this click was already handled. Nothing changed.` : `${row.id} is ${result.row.state}: nothing changed.`;
-    if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => panelView(g) });
+    if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => rootView(g, payload.view) });
     else if (!result.changed) await tell(told);
   }
 
@@ -406,7 +414,7 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
   async function refreshRoot(g, view) {
     const root = view?.root_view_id;
     if (!root || root === view.id) return;
-    try { await slack().updateView(root, panelView(g)); } catch (error) { note({ action: 'refresh-failed', message: error.message }); }
+    try { await slack().updateView(root, rootView(g, roots.get(root))); } catch (error) { note({ action: 'refresh-failed', message: error.message }); }
   }
 
   // Shows an outcome the ledger already holds, in place of viewId: its view, or its text alone when the view cannot
