@@ -149,6 +149,34 @@
           "pattern": "^[A-Z]{3}$"
         }
       }
+    },
+    "listeners": {
+      "description": "Optional inbound listeners. A service stays off until its owner allowlist is set. The receiver binds 127.0.0.1 only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "whatsapp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account": { "type": "string", "description": "The linked WhatsApp number. No colon." },
+            "owner": { "type": "string", "description": "The owner phone allowlist. Required before the receiver starts." },
+            "secretEnv": { "type": "string", "description": "Environment variable holding the HMAC secret for X-Wacli-Signature." },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "Local port. 8791 when absent." }
+          }
+        },
+        "google": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account": { "type": "string", "description": "The google --account name. A slug. Required before polling or sending." },
+            "mailbox": { "type": "string", "description": "The mailbox address stored as the event account. No colon." },
+            "owner": { "type": "string", "description": "The owner address allowlist. From alone is not enough." },
+            "agent": { "type": "string", "description": "The mail default agent." },
+            "pollMs": { "type": "integer", "minimum": 1, "description": "Poll cadence in milliseconds. Absent: no poll and no timer." }
+          }
+        }
+      }
     }
   }
 }

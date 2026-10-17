@@ -8,6 +8,8 @@ Write the initial configuration using the [configuration schema](../../../rbtv/c
 
 An optional `payments` section turns the [payment gate](payment-gate.md)'s service side on, with the withdrawal validation's port, the payments connectors Ignite sends through (`payments.connectors`; `payments.providers` is its older spelling, accepted until the next deploy), and the time zone and currency of the limits; the gate's mode, limits and PIN are set by the owner in `/payments`, never in this file.
 
+An optional `listeners` section names the owner allowlist for WhatsApp and Gmail. Each adapter stays off until `owner` is set. WhatsApp also needs `account` (the linked number) and `secretEnv` (the variable holding the HMAC secret for `wacli sync --webhook-secret`); it listens on `127.0.0.1` and `port` (8791 when absent). Gmail also needs `account` (the `google --account` name), `mailbox` (the address stored on events) and `agent` (the mail default). `pollMs` is the poll cadence in milliseconds; absent, Gmail is not polled and no timer is started. Do not guess an address or a cadence.
+
 Store environment-variable names for tokens, never token values. Follow [Installation environment file](../../../rbtv/capabilities/glossary/environment-file.md) for loading behavior and nonsecret verification. Agents consume the resulting capabilities; this record is not their prompt.
 
 Use `ignite connect` and `ignite disconnect` to change connections; they update configuration as well as the managed agent setup. Follow the [operator runbook](../tools/ignite/documentation/runbook.md) for connection and deployment. A configuration edit does not prove a running service has used it. Albert's schedules are the consolidation controls.

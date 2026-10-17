@@ -20,6 +20,7 @@
   "provides": [
     "message.send",
     "message.history",
+    "message.receive",
     "calendar.list",
     "calendar.create",
     "calendar.update",

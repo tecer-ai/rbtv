@@ -4,11 +4,11 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { loadConfig, agentHome, storePath, slackToken, paymentsConfig } = require('./config.js');
+const { loadConfig, agentHome, storePath, slackToken, paymentsConfig, listenersConfig } = require('./config.js');
 const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const { Store } = require('./store.js');
-const { handleEvent } = require('./ingress.js');
+const listener = require('./listener.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
 const { createTicker } = require('./status-ticker.js');
@@ -257,10 +257,18 @@ async function startLocked(opts, workspace, held) {
   const audio = opts.audio || (fake ? null : new Audio({ command: config.tools.audio, workspace }));
   if (!socket && fake) socket = { async connect() {}, stop() {} };
 
+  const runtime = runtimeFolder(workspace);
   const ctx = {
     config,
     slack,
     log,
+    decisionFile: path.join(runtime, 'decisions.jsonl'),
+    subscriptionFile: path.join(workspace, '.rbtv', 'config', 'ignite', 'subscriptions.json'),
+    threadFile: path.join(runtime, 'message-threads.json'),
+    holdFile: path.join(runtime, 'receive-hold.jsonl'),
+    now: clock,
+    agentSlugs: () => agentSlugs(workspace),
+    defaults: { slackDm: config.dmAgent, mail: config.listeners?.google?.agent || null, whatsapp: config.dmAgent },
     openStore(slug) {
       const home = agentHome(config, slug);
       if (!fs.existsSync(home)) throw new Error(`agent home missing: ${slug}`);
@@ -276,6 +284,8 @@ async function startLocked(opts, workspace, held) {
       store,
       slack,
       audio: audio?.forAgent ? audio.forAgent(agentHome(config, slug)) : audio,
+      listeners: listenersConfig(config),
+      workspace,
       turnCommand: opts.turnCommand,
       castEnv: opts.castEnv,
       now: opts.now,
@@ -407,6 +417,7 @@ async function startLocked(opts, workspace, held) {
       const next = loadConfig(workspace);
       config = next;
       ctx.config = next;
+      ctx.defaults = { slackDm: config.dmAgent, mail: config.listeners?.google?.agent || null, whatsapp: config.dmAgent };
     } catch (error) {
       log({ event: 'config', message: error.message });
     }
@@ -414,7 +425,7 @@ async function startLocked(opts, workspace, held) {
 
   const onEvent = (event) => {
     refreshConfig();
-    return handleEvent(event, ctx).then((result) => {
+    return listener.dispatch(listener.fromSocket(event, config), ctx).then((result) => {
       if (result?.ignored) {
         log({
           event: 'ignored',
@@ -518,6 +529,7 @@ async function startLocked(opts, workspace, held) {
   // The payment pass in flight ends before the ledger closes; the listener stops answering at once.
   let paymentsDone = Promise.resolve();
   let listening = null;
+  let listenerSession = { stop() {} };
   function stopPayments() {
     paymentsDone = Promise.all([
       webhook ? webhook.close() : null,
@@ -554,6 +566,7 @@ async function startLocked(opts, workspace, held) {
     }
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
+    try { listenerSession?.stop(); } catch (error) { log({ event: 'listener-stop', message: error.message }); }
     statusDone = Promise.all([stopStatus(), paymentsDone, audio?.close?.()]).then(() => {
       releaseLock(held);
       for (const slug of [...stores.keys()]) {
@@ -597,6 +610,7 @@ async function startLocked(opts, workspace, held) {
       timers.push(setInterval(paymentStep, opts.paymentMs ?? SWEEP_MS));
     }
     if (socket) await socket.connect(onEvent, interactions);
+    listenerSession = await listener.start(ctx);
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
     timers.push(setInterval(() => {

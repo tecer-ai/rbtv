@@ -37,6 +37,7 @@ One row per production file under `core/ignite/` and Slack class method it reach
 | `outbox.js` | `uploadFile` | message | `message.file`: each file of the reply, and a synthesized voice file |
 | `turn-loop.js` | `downloadFile` | message | `message.file`: the owner message's files, before transcription |
 | `ingress.js` | `threadHistory` | message | `message.history`: the thread an owner reply arrived in |
+| `listener.js` | `threadHistory` | message | `message.history`: the thread an owner reply arrived in, when the socket event is a reply in a group |
 | `connect.js` | `createChannel` | message | `group.manage`: the agent's channel |
 | `connect.js` | `joinChannel` | message | `group.manage` |
 | `connect.js` | `inviteUser` | message | `group.manage`: the owner joins the agent's channel |

@@ -737,7 +737,7 @@ test('RM-10 the database literal remains only in config.js', () => {
     }
   };
   walk(__dirname);
-  assert.deepEqual(hits, ["config.js:204:const DATABASE_NAME = 'state.sqlite';"]);
+  assert.deepEqual(hits, ["config.js:254:const DATABASE_NAME = 'state.sqlite';"]);
 });
 
 if (failures.length) {

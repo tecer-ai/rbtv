@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig } = require('./config.js');
+const { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig, listenersConfig } = require('./config.js');
 
 const failures = [];
 
@@ -263,6 +263,23 @@ test('payments.connectors names the accounts; payments.providers is the older sp
   assert.throws(() => loadConfig(dir), /^Error: payments.connectors replaces payments.providers: give one$/);
   writeConfig(dir, { payments: { connectors: 'asaas' } });
   assert.throws(() => loadConfig(dir), /^Error: payments.connectors must be a list of connector names, such as \["asaas"\]$/);
+});
+
+test('a listener starts only with an explicit owner; a missing owner or poll cadence leaves that adapter off', (dir) => {
+  writeConfig(dir);
+  assert.equal(listenersConfig(loadConfig(dir)), null);
+  writeConfig(dir, { listeners: { whatsapp: { account: '5511911112222', secretEnv: 'WACLI_WEBHOOK_SECRET' } } });
+  assert.deepEqual(listenersConfig(loadConfig(dir)), {});
+  writeConfig(dir, { listeners: { whatsapp: { account: '5511911112222', owner: '5511911112222', secretEnv: 'WACLI_WEBHOOK_SECRET' } } });
+  assert.equal(listenersConfig(loadConfig(dir)).whatsapp.port, 8791);
+  writeConfig(dir, { listeners: { google: { account: 'sara-mail', mailbox: 'sara@example.com', owner: 'owner@example.com', agent: 'sara' } } });
+  assert.equal(listenersConfig(loadConfig(dir)).google.pollMs, undefined);
+  writeConfig(dir, { listeners: { google: { account: 'sara-mail', mailbox: 'sara@example.com', owner: 'owner@example.com', agent: 'sara', pollMs: 60000 } } });
+  assert.equal(listenersConfig(loadConfig(dir)).google.pollMs, 60000);
+  writeConfig(dir, { listeners: { google: { account: 'sara-mail', mailbox: 'sara@example.com', owner: 'owner@example.com', agent: 'sara', pollMs: 0 } } });
+  assert.throws(() => loadConfig(dir), /pollMs/);
+  writeConfig(dir, { listeners: { whatsapp: { account: '5511:1', owner: '5511911112222', secretEnv: 'WACLI_WEBHOOK_SECRET' } } });
+  assert.throws(() => loadConfig(dir), /colon/);
 });
 
 if (failures.length) {

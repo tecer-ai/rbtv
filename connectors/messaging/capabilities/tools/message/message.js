@@ -388,11 +388,12 @@ async function permission(ctx, connector, to, verb) {
   const config = policyConfig(ctx);
   // Phase 2 has grants for the configured Slack account only. A mirror/other connector cannot
   // borrow Slack ids as its own permissions; its grants arrive with that port's contact book.
-  const owner = connector.name === 'slack' ? config?.slack?.ownerUserId || null : null;
+  const owner = connector.name === 'slack' ? config?.slack?.ownerUserId || null : (config?.listeners?.[connector.name]?.owner || null);
   const slug = ctx.home ? path.basename(ctx.home) : null;
   const channels = connector.name === 'slack' && slug && config?.routes
     ? Object.entries(config.routes).filter(([id, agent]) => agent === slug && /^[CG][A-Z0-9]+$/.test(id)).map(([id]) => id) : [];
   if (config?.slack?.team && (channels.includes(to) || (verb === 'send' && owner && to === owner))) return;
+  if (connector.name !== 'slack' && owner && (to === owner || String(to).startsWith(`${owner}@`))) return;
   let verification = '';
   if (verb === 'reply' && owner && config?.slack?.team && /^D[A-Z0-9]+$/.test(to)) {
     try { if (await ownerConversation(ctx, to, owner)) return; }
@@ -431,6 +432,18 @@ function checkAddress(all, connector, to) {
 }
 
 // ───────────────────────────────────────────────────────────── output
+
+function rememberThread(ctx, row) {
+  if (!ctx.installation || !row.agent || !row.thread) return;
+  const file = path.join(ctx.installation, '.rbtv', 'runtime', 'ignite', 'message-threads.json');
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
+    const rows = Array.isArray(current) ? current : [];
+    rows.push({ ...row, via: 'message-send' });
+    fs.writeFileSync(file, JSON.stringify(rows));
+  } catch { /* the send already happened; affinity is retried from the file when the write works */ }
+}
 
 function emitSent(io, json, verb, result) {
   if (json) { io.stdout(`${JSON.stringify(result.body)}\n`); return; }
@@ -537,6 +550,7 @@ async function doSend(io, parsed, ctx) {
     as: as?.name || null, files: result.files.map((f) => (f.error ? { path: f.path, id: null, error: f.error } : { path: f.path, id: f.id })),
   };
   emitSent(io, parsed.json, 'send', { body: out, where: where.contact ? 'direct' : `group ${where.group}`, textAsFile: result.textAsFile });
+  rememberThread(ctx, { connector: connector.name, account, conversation: result.conversation, thread: result.id, agent: ctx.home ? path.basename(ctx.home) : null });
   return reportRefusedFiles(io, body, ref, result);
 }
 

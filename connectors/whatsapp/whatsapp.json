@@ -15,6 +15,7 @@
   "provides": [
     "message.send",
     "message.history",
-    "message.file"
+    "message.file",
+    "message.receive"
   ]
 }

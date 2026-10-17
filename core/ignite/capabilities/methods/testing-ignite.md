@@ -35,13 +35,13 @@ None of these programs sends when `IGNITE_SENDER_TOKEN` or a Slack token variabl
 
 ```
 cd core/ignite/capabilities/tools/ignite
-for t in audio board cli config daemon deploy ingress live_status manage memory memory_write messaging_contract outbox payments prompt slack store turn turn_loop albert_evidence runtime_migration timer_check; do
+for t in audio board cli config daemon deploy ingress live_status manage memory memory_write messaging_contract outbox payments prompt slack store turn turn_loop albert_evidence runtime_migration timer_check message_receive receive_boundary; do
   node test_$t.js > "$OUT/test_$t.out" 2> "$OUT/test_$t.err"; echo "test_$t $?"
 done
 HOME="$EMPTY" USERPROFILE="$EMPTY" node test_connect.js > "$OUT/test_connect.out" 2> "$OUT/test_connect.err"; echo "test_connect $?"
 ```
 
-After retirement removes `test_dreamer.js`, run that same list without `dreamer`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_messaging_contract.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_live_status.js`, `test_manage.js`, `test_payments.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The memory and Albert programs stay out of that loop. Run them from the repository root:
+After retirement removes `test_dreamer.js`, run that same list without `dreamer`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_messaging_contract.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_live_status.js`, `test_manage.js`, `test_payments.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js`, `test_runtime_migration.js`, `test_message_receive.js` and `test_receive_boundary.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The memory and Albert programs stay out of that loop. Run them from the repository root:
 
 ```
 HOME="$EMPTY" USERPROFILE="$EMPTY" node core/memory/capabilities/tools/memory/test_memory_core.js > "$OUT/test_memory_core.out" 2> "$OUT/test_memory_core.err"; echo "test_memory_core $?"

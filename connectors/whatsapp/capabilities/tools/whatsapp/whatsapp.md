@@ -1,6 +1,6 @@
 # WhatsApp
 
-`whatsapp` runs [wacli](https://github.com/openclaw/wacli), a WhatsApp command-line client, on the installation's own store. It passes every argument to `wacli` unchanged, so `whatsapp --help` and `whatsapp help COMMAND` are the interface reference, and [wacli.sh](https://wacli.sh) is the full documentation.
+`whatsapp` runs [wacli](https://github.com/openclaw/wacli), a WhatsApp command-line client, on the installation's own store. It passes every argument to `wacli` unchanged, so `whatsapp --help` and `whatsapp help COMMAND` are the interface reference, and [wacli.sh](https://wacli.sh) is the full documentation. The messaging adapter is `lib/messaging.js`. Ignite starts its localhost receiver only when `listeners.whatsapp` names the linked number, the owner phone and the webhook secret variable. The receiver binds `127.0.0.1` and checks `X-Wacli-Signature` (HMAC-SHA256 of the body, hex or `sha256=` plus hex) before dispatch. Point `wacli sync --webhook` at `http://127.0.0.1:<port>/whatsapp` with `--webhook-secret` and `--webhook-allow-private`. Do not publish that port.
 
 wacli links to a personal WhatsApp account as a linked device and speaks the WhatsApp Web protocol through a third-party library. It is not affiliated with WhatsApp or Meta.
 

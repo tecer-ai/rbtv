@@ -34,6 +34,7 @@
 //   the live system state is failed and nothing moves. Each is written in the transaction that
 //   records the delivery or the give-up.
 
+const path = require('node:path');
 const { MAX_ATTEMPTS } = require('./store.js');
 const live = require('./live-status.js');
 const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
@@ -80,6 +81,28 @@ function isUserId(channel) {
 // The messaging contract's operations over this Slack client, for the shared send function: a group is
 // posted to as given (a user id was already opened to its DM by deliverOne, as the contract's connector
 // would), a file is uploaded with no caption.
+function connectorOf(store, conv) {
+  try {
+    const rows = store.db.prepare('SELECT metadata FROM messages WHERE conversation_key=? ORDER BY created_at DESC, id DESC').all(conv.key);
+    for (const row of rows) {
+      const meta = JSON.parse(row.metadata || 'null');
+      if (meta?.connector) return meta.connector;
+    }
+  } catch { /* a conversation with no connector stays on the Slack client */ }
+  return 'slack';
+}
+
+function operationsFor(name, deps) {
+  if (name === 'slack' || !name) return operationsOf(deps.slack);
+  if (deps.messaging?.[name]) return deps.messaging[name];
+  const adapter = require(path.join(__dirname, '..', '..', '..', '..', '..', 'connectors', name, 'capabilities', 'tools', name, 'lib', 'messaging.js'));
+  const section = deps.listeners?.[name] || null;
+  return {
+    async 'message.send'(input) { return adapter.operations['message.send'](input, { section, spawn: deps.spawn, account: section?.account, mailbox: section?.mailbox }); },
+    async 'message.file'(input) { return adapter.operations['message.file'](input, { section, spawn: deps.spawn, account: section?.account }); },
+  };
+}
+
 function operationsOf(slack) {
   return {
     async 'message.send'({ group, contact, thread, text, as, clientId }) {
@@ -177,7 +200,7 @@ async function deliverOne(store, row, deps, now) {
     if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');
     let confirmed = row.channel && row.ts ? { channel: row.channel, ts: row.ts } : null;
     // A retry of a row whose text Slack confirmed sends the files only, into that text's thread.
-    const sent = await sendModule.send(operationsOf(deps.slack), {
+    const sent = await sendModule.send(operationsFor(connectorOf(store, conv), deps), {
       group: channel, thread: threadTs || (confirmed ? confirmed.ts : null), text: confirmed ? '' : text, files, as, clientId: row.client_msg_id,
     });
     if (!confirmed && sent.id && (text || !files.length || sent.textAsFile)) {

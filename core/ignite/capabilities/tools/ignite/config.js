@@ -18,6 +18,9 @@
 //                                America/Sao_Paulo, BRL) when the config has a payments section, which turns the payment
 //                                gate's service side on; else null. payments.providers, the older spelling of
 //                                payments.connectors, is read as connectors; both given is refused
+// listenersConfig(config)      — { whatsapp?, google? } for each listener whose owner allowlist is set; a section
+//                                without owner is omitted (that adapter stays off). google.pollMs is kept only when
+//                                it is a positive integer. null when the config has no listeners section
 // timeZoneProblem(zone) / currencyProblem(code) — null for an IANA time zone / an ISO 4217 code with two decimals,
 //                                else the reason; the one check of both, used here and by the payment gate
 
@@ -25,11 +28,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { agentHomeIn } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
-const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments'];
+const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments', 'listeners'];
 const LEGACY_CONFIG_KEY = 'dreamer';
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const PAYMENT_KEYS = ['webhookPort', 'connectors', 'providers', 'timeZone', 'currency']; // providers: the older spelling of connectors
+const LISTENER_KEYS = ['whatsapp', 'google'];
+const WHATSAPP_LISTENER_KEYS = ['account', 'owner', 'secretEnv', 'port'];
+const GOOGLE_LISTENER_KEYS = ['account', 'mailbox', 'owner', 'agent', 'pollMs'];
 const PAYMENT_DEFAULTS = Object.freeze({ webhookPort: 8787, connectors: ['asaas'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -129,7 +135,41 @@ function validate(raw) {
     const currency = raw.payments.currency;
     if (currency !== undefined && currencyProblem(currency)) throw new Error(`payments.currency ${currencyProblem(currency)}`);
   }
+  if (raw.listeners !== undefined) validateListeners(raw.listeners);
   return raw;
+}
+
+function noColon(value, label) {
+  const text = reqString({ value }, 'value', label);
+  if (text.includes(':')) throw new Error(`${label} cannot contain a colon`);
+  return text;
+}
+
+function validateListeners(raw) {
+  rejectUnknown(raw, LISTENER_KEYS, 'listeners');
+  if (raw.whatsapp !== undefined) {
+    rejectUnknown(raw.whatsapp, WHATSAPP_LISTENER_KEYS, 'listeners.whatsapp');
+    if (raw.whatsapp.account !== undefined) noColon(raw.whatsapp.account, 'listeners.whatsapp.account');
+    if (raw.whatsapp.owner !== undefined) noColon(raw.whatsapp.owner, 'listeners.whatsapp.owner');
+    if (raw.whatsapp.secretEnv !== undefined && !ENV_NAME.test(raw.whatsapp.secretEnv)) {
+      throw new Error('listeners.whatsapp.secretEnv must be an environment variable name');
+    }
+    const port = raw.whatsapp.port;
+    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      throw new Error('listeners.whatsapp.port must be a port number from 1 to 65535');
+    }
+  }
+  if (raw.google !== undefined) {
+    rejectUnknown(raw.google, GOOGLE_LISTENER_KEYS, 'listeners.google');
+    if (raw.google.account !== undefined) reqSlug(raw.google.account, 'listeners.google.account');
+    if (raw.google.mailbox !== undefined) noColon(raw.google.mailbox, 'listeners.google.mailbox');
+    if (raw.google.owner !== undefined) noColon(raw.google.owner, 'listeners.google.owner');
+    if (raw.google.agent !== undefined) reqSlug(raw.google.agent, 'listeners.google.agent');
+    const poll = raw.google.pollMs;
+    if (poll !== undefined && (!Number.isInteger(poll) || poll < 1)) {
+      throw new Error('listeners.google.pollMs must be a positive number of milliseconds');
+    }
+  }
 }
 
 function timeZoneProblem(zone) {
@@ -150,6 +190,27 @@ function currencyProblem(code) {
   }
   const digits = new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits;
   return digits === 2 ? null : 'must be a currency with two decimals: amounts are kept in hundredths';
+}
+
+function listenersConfig(config) {
+  const raw = config?.listeners;
+  if (!raw) return null;
+  const out = {};
+  const whatsapp = raw.whatsapp;
+  if (whatsapp?.owner && whatsapp.account && whatsapp.secretEnv) {
+    out.whatsapp = { account: whatsapp.account, owner: whatsapp.owner, secretEnv: whatsapp.secretEnv, port: whatsapp.port || 8791 };
+  }
+  const google = raw.google;
+  if (google?.owner && google.account && google.mailbox && google.agent) {
+    out.google = {
+      account: google.account,
+      mailbox: google.mailbox,
+      owner: google.owner,
+      agent: google.agent,
+      ...(Number.isInteger(google.pollMs) && google.pollMs > 0 ? { pollMs: google.pollMs } : {}),
+    };
+  }
+  return out;
 }
 
 function paymentsConfig(config) {
@@ -190,17 +251,6 @@ function agentHome(config, slug) {
 
 const MIGRATION_COMMAND = 'ignite runtime migrate';
 const MARKER_NAME = 'MIGRATED';
-
-
-
-
-
-
-
-
-
-
-
 const DATABASE_NAME = 'state.sqlite';
 const LEGACY_FILES = [DATABASE_NAME, `${DATABASE_NAME}-wal`, `${DATABASE_NAME}-shm`];
 const LEGACY_DIRS = ['conversations', 'turns'];
@@ -286,7 +336,7 @@ function slackToken(config, key) {
 }
 
 module.exports = {
-  configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig,
+  configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig, listenersConfig,
   timeZoneProblem, currencyProblem,
   ignitePaths, resolveIgniteRuntime, legacyLayout,
   migrationGuardPath, migrationInvocation, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME,

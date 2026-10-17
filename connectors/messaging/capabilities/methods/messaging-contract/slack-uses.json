@@ -1,10 +1,12 @@
 {
   "files": {
+    "config.js": "28d33bd333ad289f16a674def5df0779e35261e2c8bb2d8bce751161f9850d5e",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
-    "daemon.js": "c80a4bb7f3fe99255ca3d6f4c5d8bc1f403562bef9c0f50c828bed241c7a9719",
+    "daemon.js": "5c133bfaf908851cc968a4018c182b59dabe797916d25054b6c8ca022af3f089",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "outbox.js": "b9747f12f2b02d9bdf6f1fc7b861ec24032127b7b3b98a0ded232abb5630c539",
+    "listener.js": "2198fe7bf11482b1e40d434902703e7cef276ffe462ac0588622a4fb5122f1eb",
+    "outbox.js": "8bfe3e4c44eba19cf4320007ddef631ac6f1dadd6ebf8254bd4073f20369d0a2",
     "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
@@ -91,7 +93,7 @@
     },
     {
       "file": "config.js",
-      "line": "const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments'];",
+      "line": "const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments', 'listeners'];",
       "nth": 0,
       "kind": "config"
     },
@@ -546,6 +548,72 @@
       "kind": "call:openView"
     },
     {
+      "file": "listener.js",
+      "line": "if (threaded && event.connector === 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "if (typeof ctx.slack?.threadHistory !== 'function') throw new Error('slack.threadHistory required');",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "listener.js",
+      "line": "if (typeof ctx.slack?.threadHistory !== 'function') throw new Error('slack.threadHistory required');",
+      "nth": 1,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "const history = await ctx.slack.threadHistory(channel, rootTs);",
+      "nth": 0,
+      "kind": "call:threadHistory"
+    },
+    {
+      "file": "listener.js",
+      "line": "role: raw.user === ctx.config?.slack?.ownerUserId ? 'owner' : 'user',",
+      "nth": 0,
+      "kind": "config"
+    },
+    {
+      "file": "listener.js",
+      "line": "metadata: { connector: 'slack', account, from: raw.user || null, conversation: channel },",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "if (event.connector === 'slack') {",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "const owner = config?.slack?.ownerUserId || '';",
+      "nth": 0,
+      "kind": "config"
+    },
+    {
+      "file": "listener.js",
+      "line": "connector: 'slack',",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "listener.js",
+      "line": "account: event?.team || config?.slack?.team,",
+      "nth": 0,
+      "kind": "config"
+    },
+    {
+      "file": "listener.js",
+      "line": "identity: { verified: ownerMatch, method: 'slack-socket', owner: ownerMatch },",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
       "file": "live-status.js",
       "line": "// shows them in its medium (Slack: connectors/slack/capabilities/tools/slack/lib/live-status.js). This",
       "nth": 0,
@@ -568,6 +636,24 @@
       "line": "//   A user id target (payload.imUser, or a DM agent's board channel) is opened with slack.openIm and",
       "nth": 0,
       "kind": "comment"
+    },
+    {
+      "file": "outbox.js",
+      "line": "return 'slack';",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (name === 'slack' || !name) return operationsOf(deps.slack);",
+      "nth": 0,
+      "kind": "message"
+    },
+    {
+      "file": "outbox.js",
+      "line": "if (name === 'slack' || !name) return operationsOf(deps.slack);",
+      "nth": 1,
+      "kind": "binding"
     },
     {
       "file": "outbox.js",
@@ -652,12 +738,6 @@
       "line": "if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');",
       "nth": 1,
       "kind": "message"
-    },
-    {
-      "file": "outbox.js",
-      "line": "const sent = await sendModule.send(operationsOf(deps.slack), {",
-      "nth": 0,
-      "kind": "binding"
     },
     {
       "file": "payment-panel.js",

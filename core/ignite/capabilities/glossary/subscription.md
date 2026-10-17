@@ -2,7 +2,7 @@
 
 A subscription is a record that says which agent an inbound event wakes: for a group, a contact or a kind of event on a [port](../../../rbtv/capabilities/glossary/port.md), the agent, set by the owner as data and never as code an agent writes. The [listener](listener.md) reads subscriptions when it routes; subscriptions and the routing rules are one store, which the `/messages` panel will manage.
 
-Today the only subscriptions are Ignite's fixed configuration: `dmAgent`, the agent of the owner's Slack DM, and `routes`, one agent per channel; a channel with no route is ignored, and every event not from the owner is dropped before routing (`ingress.js`). A subscription that admits another sender is phase 3b of the connector architecture: owner-only stays the default, a subscription is the only thing that opens it, and a non-owner event with no subscription is still dropped.
+Subscriptions and routing rules are one file, `.rbtv/config/ignite/subscriptions.json`: a JSON array of `{ id, connector, account, group, contact, agent, judge }`. A null constraint matches any value of that field. `judge` is `{ question }` for a TypeSafe yes/no at entry, or null. Ignite's `dmAgent` and `routes` remain the Slack defaults when no subscription matches. A subscription does not admit a non-owner: owner-only stays the default, and a non-owner event is dropped before any rule is read.
 
 ## Kinds
 
