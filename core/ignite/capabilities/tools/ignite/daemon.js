@@ -254,7 +254,7 @@ async function startLocked(opts, workspace, held) {
   let config = loadConfig(workspace);
   const fake = process.env.IGNITE_DAEMON_FAKE === '1' && !opts.slack;
   let slack = opts.slack || null;
-  const audio = opts.audio || (fake ? null : new Audio({ command: config.tools.audio }));
+  const audio = opts.audio || (fake ? null : new Audio({ command: config.tools.audio, workspace }));
   if (!socket && fake) socket = { async connect() {}, stop() {} };
 
   const ctx = {
@@ -275,7 +275,7 @@ async function startLocked(opts, workspace, held) {
       home: agentHome(config, slug),
       store,
       slack,
-      audio,
+      audio: audio?.forAgent ? audio.forAgent(agentHome(config, slug)) : audio,
       turnCommand: opts.turnCommand,
       castEnv: opts.castEnv,
       now: opts.now,
@@ -554,7 +554,7 @@ async function startLocked(opts, workspace, held) {
     }
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
-    statusDone = Promise.all([stopStatus(), paymentsDone]).then(() => {
+    statusDone = Promise.all([stopStatus(), paymentsDone, audio?.close?.()]).then(() => {
       releaseLock(held);
       for (const slug of [...stores.keys()]) {
         if (!inflight.has(slug)) closeStore(slug);

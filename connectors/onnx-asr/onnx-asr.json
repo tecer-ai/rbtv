@@ -1,0 +1,22 @@
+{
+  "description": "Local speech transcription through onnx-asr, with resident CPU models; voice synthesis belongs to another media connector.",
+  "type": "media",
+  "provides": [
+    "media.transcribe"
+  ],
+  "dependencies": [
+    {
+      "name": "node",
+      "install": "https://nodejs.org/en/download",
+      "command": "node"
+    },
+    {
+      "name": "python",
+      "install": "https://www.python.org/downloads/"
+    },
+    {
+      "name": "onnx-asr",
+      "install": "python -m pip install 'onnx-asr[cpu]'==0.12.0 faster-whisper==1.2.1 av==16.1.0"
+    }
+  ]
+}

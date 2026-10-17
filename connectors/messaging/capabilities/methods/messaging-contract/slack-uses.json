@@ -1,7 +1,7 @@
 {
   "files": {
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
-    "daemon.js": "c1d2fde2d3798d79c30163ee7b70ad7693f61ad1dbd1e51174d2d7a803666e3b",
+    "daemon.js": "c80a4bb7f3fe99255ca3d6f4c5d8bc1f403562bef9c0f50c828bed241c7a9719",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "outbox.js": "b9747f12f2b02d9bdf6f1fc7b861ec24032127b7b3b98a0ded232abb5630c539",

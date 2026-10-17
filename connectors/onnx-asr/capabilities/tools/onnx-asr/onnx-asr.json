@@ -1,0 +1,5 @@
+{
+  "name": "onnx-asr",
+  "description": "Transcribes a local audio file with an installed onnx-asr model; runs without an external API or automatic model downloads.",
+  "entry": "onnx-asr.js"
+}

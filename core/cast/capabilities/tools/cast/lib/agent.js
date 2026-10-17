@@ -213,6 +213,8 @@ function readAgent(home) {
     name: text(values.name) ? values.name : path.basename(home),
     externalName: text(values.external_name) ? values.external_name.trim() : null,
     voice: values.voice ?? null,
+    transcriptionModel: values.transcription_model ?? null,
+    generationModel: values.generation_model ?? null,
     avatar: text(values.avatar) ? values.avatar.trim() : null,
     description: typeof values.description === 'string' ? values.description : '',
     ignite: Array.isArray(values.packs) && values.packs.includes('ignite'),

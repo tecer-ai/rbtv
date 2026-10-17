@@ -24,9 +24,10 @@ from . import (test_agent_local, test_agents, test_cli, test_discovery, test_doc
                test_providers, test_subagents, test_component_merge,
                test_listing_types, test_rulings_ops,
                test_rulings_messages, test_repositories,
-               test_connector_records, test_needs)
+               test_connector_records, test_needs, test_media_models)
 
 ORDER = [
+    test_media_models.media_models,
     test_layout.repo_root_is_the_repo,
     test_discovery.scan,
     test_discovery.depth_two_is_the_marker,

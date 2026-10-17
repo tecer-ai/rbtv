@@ -618,6 +618,30 @@ def the_real_cli_lifecycle_under_a_temporary_installation():
         httpd.shutdown()
 
 
+@check
+def media_adapter_shared_fixtures():
+    """The Node adapter's response fixtures also exercise the Python command."""
+    fixture = json.loads((HERE / "media-fixtures.json").read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory(prefix="eleven-media-parity-") as tmp:
+        folder = Path(tmp)
+        source = folder / "note.m4a"
+        source.write_bytes(b"fixture")
+        config = folder / "config.json"
+        config.write_text('{"language":"en"}', encoding="utf-8")
+        code, out, err, stub = run(["transcribe", str(source), "--model", "scribe_v2"],
+            {("POST", "/v1/speech-to-text"): Response(body=fixture["transcript"])}, config=config)
+        assert code == 0, err
+        assert json.loads(out)["text"] == "hello"
+        assert stub.calls[0]["data"] == {"model_id":"scribe_v2", "language_code":"en"}
+        out_file = folder / "output.mp3"
+        code, out, err, stub = run(["tts", "--text", "hello", "--voice", "owner-voice",
+            "--out", str(out_file), "--model", "eleven_flash_v2_5"],
+            {("POST", "/v1/text-to-speech/owner-voice"): Response(content=fixture["audio"].encode())}, config=config)
+        assert code == 0, err
+        assert out_file.read_bytes() == fixture["audio"].encode()
+        assert stub.calls[0]["json"] == {"text":"hello", "model_id":"eleven_flash_v2_5", "language_code":"en"}
+
+
 def main():
     failures = []
     for fn in CHECKS:

@@ -13,6 +13,20 @@
     "components"
   ],
   "properties": {
+    "transcription_model": {
+      "description": "Installation default media model as connector/model. Agents inherit this unless their transcription_model is nonblank. Missing, null or blank preserves Ignite's configured tools.audio command for existing installations.",
+      "oneOf": [
+        {"const": null},
+        {"type": "string", "pattern": "^(\\s*|[a-z0-9][a-z0-9-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.-]*)$"}
+      ]
+    },
+    "generation_model": {
+      "description": "Installation default speech generation model as connector/model, resolved independently from transcription_model. Agent generation_model overrides it; missing, null or blank preserves tools.audio.",
+      "oneOf": [
+        {"const": null},
+        {"type": "string", "pattern": "^(\\s*|[a-z0-9][a-z0-9-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.-]*)$"}
+      ]
+    },
     "schema": {
       "description": "The version of this record's format.",
       "type": "integer"

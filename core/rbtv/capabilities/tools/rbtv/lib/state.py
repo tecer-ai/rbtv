@@ -4,6 +4,7 @@ write, query.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from discovery import HUB_DIR, Refuse, SKILLS_DIR
@@ -31,6 +32,12 @@ def _string_list(value: object, label: str, path: Path) -> None:
 
 def _validate_state(state: dict, path: Path) -> None:
     """Validate every book shape consumed by migrations and planners."""
+    for name in ("transcription_model", "generation_model"):
+        value = state.get(name)
+        if value is not None and (not isinstance(value, str) or
+                (value.strip() and not re.fullmatch(
+                    r"[a-z0-9][a-z0-9-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.-]*", value.strip()))):
+            _state_refuse(path, f"{name} must be blank or connector/model")
     components = state.get("components", {})
     if components is None:
         state["components"] = {}
@@ -275,6 +282,7 @@ def doubled_keys(target: Path) -> list[str]:
 
 def write_state(target: Path, state: dict) -> None:
     path = state_path(target)
+    _validate_state(state, path)
     state["schema"] = SCHEMA
     state["version"] = VERSION
     state["marker"] = MANAGED_MARK

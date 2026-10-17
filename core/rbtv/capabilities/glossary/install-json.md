@@ -8,4 +8,6 @@ Change selections through rbtv or edit the selection fields and apply the refres
 
 Keep this record on its machine and exclude it from git. Keep absolute paths and timestamps out of it. Each machine maintains its own installation selections, while [path-owners.json](path-owners-json.md) records commands shared by installations on that machine.
 
+`transcription_model` and `generation_model` independently select the installation's audio defaults as `connector/model`, such as `onnx-asr/nemo-parakeet-tdt-0.6b-v3` and `elevenlabs/eleven_flash_v2_5`. An agent's nonblank field of the same name overrides that operation only. Missing, null or blank agent fields inherit the current installation value. Ignite reads these choices at every audio operation; editing them requires no refresh or service restart. With no selection at either level, an existing Ignite installation keeps using its configured `tools.audio` command. Keep model paths and executor settings in the connector's own configuration folder.
+
 After changing a selection, check the installed listing and generated files. Run `rbtv doctor` to check them against the saved record; merely accepting an edit does not prove the folder matches it.

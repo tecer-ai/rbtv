@@ -5,6 +5,20 @@
   "type": "object",
   "required": ["name", "description"],
   "properties": {
+    "transcription_model": {
+      "description": "Optional media model as connector/model. Missing, null or blank inherits the installation's transcription_model; read on every transcription without regenerating harness files.",
+      "oneOf": [
+        {"const": null},
+        {"type": "string", "pattern": "^(\\s*|[a-z0-9][a-z0-9-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.-]*)$"}
+      ]
+    },
+    "generation_model": {
+      "description": "Optional media model as connector/model. Missing, null or blank inherits the installation's generation_model; independent of the agent's voice identity.",
+      "oneOf": [
+        {"const": null},
+        {"type": "string", "pattern": "^(\\s*|[a-z0-9][a-z0-9-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.-]*)$"}
+      ]
+    },
     "name": {
       "description": "The agent's name. It equals the agent folder's name.",
       "type": "string",

@@ -1,5 +1,7 @@
 # ElevenLabs
 
+Ignite loads `lib/media.js` in process for `media.transcribe({file, model, workspace})` and `media.speak({text, out, voice, model, workspace})`. These use the CLI's speech endpoints, language configuration, named API key and default models. Select the model through the installation or agent audio fields in [install.json](../../../../../core/rbtv/capabilities/glossary/install-json.md); the agent's `voice` still chooses its voice identity. `node --test test_media.js` checks the adapter without contacting the service.
+
 `elevenlabs` transcribes audio, synthesizes speech, lists available voices and manages the installation's language setting. Run `elevenlabs --help` and the selected verb's help for inputs, outputs and examples.
 
 Install with `rbtv add --component connectors/elevenlabs`. Python and the `requests` package must be available to the interpreter that runs the command. `rbtv doctor` reports whether those dependencies are present. Use your Python environment's package installer to add `requests` when needed; do not override an operating system's package protections.
