@@ -1,6 +1,6 @@
 {
   "files": {
-    "agent-panel.js": "07af4554365b3bd800d344c4df7ee3621199509c68c3eab4b23fc5ae9abfb131",
+    "agent-panel.js": "6e697921f19292867a076ea8c05e06f5c0179d3b7454d278a83d651a0459ec24",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "payment-panel.js": "e39be79a7b6ec8fc3783801f3146068eff03a9289d051d4a2e0293c326fd4439",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a"
@@ -147,7 +147,15 @@
     },
     {
       "file": "agent-panel.js",
-      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
+      "line": "const slug = payload.view.private_metadata;",
+      "nth": 0,
+      "reads": [
+        "view.private_metadata"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().updateView(payload.view.id, view(slug, 'docs', notice));",
       "nth": 0,
       "reads": [
         "view.id"
@@ -155,10 +163,10 @@
     },
     {
       "file": "agent-panel.js",
-      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
-      "nth": 1,
+      "line": "await slack().updateView(payload.view.id, view(slug, act.value));",
+      "nth": 0,
       "reads": [
-        "view.private_metadata"
+        "view.id"
       ]
     },
     {

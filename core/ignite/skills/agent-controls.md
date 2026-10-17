@@ -1,6 +1,6 @@
 ---
 name: agent-controls
-description: "Use when the owner asks to change or inspect this agent's harness, model, effort, or voice; manage reminders or recurring checks; inspect, retry, resume, or stop work; wake after workers; or open a new proactive thread."
+description: "Use when the owner asks to change or inspect this agent's harness, model, effort, or voice; manage reminders or recurring checks; inspect, retry, resume, or stop work; wake after workers; open a new proactive thread; or open a document in the channel canvas or bring the owner's canvas edits into its file."
 ---
 
 # agent-controls
@@ -30,6 +30,10 @@ Use `ignite manage list`, `ignite manage search WORDS` and `ignite manage show N
 Use `ignite board write --file <path>` to update your board's subjects or Watch-outs. Supply the complete candidate board; the checked command preserves Timers, Recently closed, and existing Flags, and refuses an invalid or over-cap write. Use `ignite board close <subject> <outcome> [thread]` when a subject is done; it removes that subject and writes its outcome in Recently closed. Never edit the board file directly.
 
 When the owner corrects your behaviour, record the correction in the board's Watch-outs in the same turn. Do not write `memory/learned.md`: Albert folds Watch-outs into learned rules on its next run. When the owner asks to remember a fact, use `ignite remember <text>` instead. It appends one line to shared `.rbtv/memory/inbox.md` and does not rewrite earlier memory.
+
+## Documents in the channel canvas
+
+The owner reads and edits a repository Markdown file in your channel's canvas, opened from the Docs tab of `/agent` or by you with `ignite docs open <path>`; the file stays the source. When the owner asks you to bring the canvas edits in, run `ignite docs pull`, edit the file yourself from what changed, and tell the owner what you changed. A pull does not change the file. Comments stay in the canvas; when the pull reports comments, tell the owner you cannot read their text and ask for anything in them that matters. `ignite docs -h` gives the rest; use `--force` only when the owner says the canvas edits can be lost.
 
 ## Proactive posts
 

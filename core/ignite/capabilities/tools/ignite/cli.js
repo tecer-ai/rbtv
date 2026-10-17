@@ -47,6 +47,9 @@ const VERBS = {
   'board close': { options: [], words: 3 },
   remember: { options: [], words: Infinity },
   'runtime migrate': { options: [], words: 0 },
+  'docs list': { options: [], words: 0 },
+  'docs open': { options: ['force'], words: 1 },
+  'docs pull': { options: [], words: 0 },
 };
 
 const HELP = `ignite — help
@@ -78,6 +81,8 @@ Timers, work, messages and memory
   remember       Append one owner fact to the installation memory inbox.
   runtime        Move this agent's database, conversations and turns into
                  runtime/ignite/.
+  docs           List this agent's recent Markdown outputs, open one in
+                 its channel canvas, or pull the canvas back as Markdown.
 
 Waking service
   deploy         Check the service's folder out at a commit, restart the
@@ -87,7 +92,7 @@ Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
   .rbtv/config/ignite/config.json.
   manage's four change verbs, and schedule, work, wake, post, status,
-  payment, board and remember, use that agent. Help needs neither value.
+  payment, board, remember and docs, use that agent. Help needs neither value.
   Inside a turn the waking program also sets IGNITE_CONVERSATION.
   A home that is not an existing folder is refused, and nothing is created.
 
@@ -213,8 +218,8 @@ function parseOpts(argv, verb) {
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
       if (!VERBS[verb].options.includes(key)) fail(`'${arg}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`);
-      if (key === 'audio') {
-        opts.audio = true;
+      if (key === 'audio' || key === 'force') {
+        opts[key] = true;
         continue;
       }
       const value = take(argv, i, arg, `ignite ${verb} -h`);
@@ -535,6 +540,47 @@ function cmdPost(ctx, flags, deps, { opts }) {
   return 0;
 }
 
+// The open document of the agent's channel canvas (docs.js): the same operations the /agent panel's Docs tab runs.
+// Its own context, closed when the Slack calls are done.
+async function cmdDocs(rest, flags, deps) {
+  const [action, ...tail] = rest;
+  if (!['list', 'open', 'pull'].includes(action)) fail('docs requires list, open or pull\nNothing changed.\nignite docs -h');
+  const { opts, positionals } = parseOpts(tail, `docs ${action}`);
+  if (action === 'open' && !positionals[0]) fail('docs open requires the path of a Markdown file, relative to the installation\nNothing changed.\nignite docs open -h');
+  const ctx = openContext(flags, deps);
+  try {
+    const docs = require('./docs.js');
+    if (action === 'list') {
+      const list = docs.recentDocs(ctx.store, ctx.workspace);
+      const open = docs.openDocument(ctx.store)?.path || null;
+      emit(deps, flags, { docs: list, open }, `${list.map((doc) => `${doc.path}  (from a turn ${new Date(doc.at).toISOString()})`).join('\n')}${list.length ? '\n' : 'no Markdown document in the recent turn outputs\n'}in the canvas: ${open || 'nothing'}\n`);
+      return 0;
+    }
+    if (!ctx.config) fail('docs needs Ignite\'s config.json\nNothing changed.');
+    const { Slack } = require('./slack.js');
+    const { slackToken } = require('./config.js');
+    const slack = deps.slack || new Slack({ botToken: slackToken(ctx.config, 'bot'), stoolsWorkspace: ctx.config.slack.stoolsWorkspace });
+    if (action === 'pull') {
+      const pulled = await docs.pullDoc({ slack, store: ctx.store });
+      if (!pulled) {
+        emit(deps, flags, { path: null }, 'no document is open in the canvas\n');
+        return 0;
+      }
+      emit(deps, flags, pulled, `path: ${pulled.path}\nedited: ${pulled.edited ? 'yes' : 'no'}\ncomments: ${pulled.comments} (their text stays in the canvas)\n---\n${pulled.markdown}`);
+      return 0;
+    }
+    const channel = Object.entries(ctx.config.routes || {}).find(([, routed]) => routed === ctx.slug)?.[0];
+    if (!channel) fail(`agent ${ctx.slug} has no channel of its own: documents open in a channel canvas\nNothing changed.`);
+    const result = await docs.openDoc({ slack, store: ctx.store, workspace: ctx.workspace, channel, path: positionals[0], force: Boolean(opts.force) });
+    const next = result.refused === 'edited' ? 'bring the edits in first with ignite docs pull, or replace them with --force' : 'replace it with --force when what it holds can be lost';
+    if (result.refused) fail(`not opened: ${result.why}\n${next}\nNothing changed.`);
+    emit(deps, flags, result, `opened ${result.opened} in the canvas ${result.canvasId} of channel ${channel}\n`);
+    return 0;
+  } finally {
+    ctx.store.close();
+  }
+}
+
 function cmdBoard(rest, flags, deps) {
   if (!rest.length) {
     emit(deps, { json: false }, null, PAGES.board);
@@ -850,8 +896,9 @@ function main(argv, deps = {}) {
   if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (command === 'albert') return cmdAlbert(tail, flags, deps);
   if (command === 'runtime') return cmdRuntime(tail, flags, deps);
+  if (command === 'docs') return cmdDocs(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, payment, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, payment, board, remember, runtime, docs, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
   const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
   const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);

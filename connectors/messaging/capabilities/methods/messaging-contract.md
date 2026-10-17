@@ -18,10 +18,11 @@ A **group** is a place several people talk: a Slack channel, a WhatsApp group, a
 | `message.react` | message | Adds or removes a named reaction on a message; [live status](../../../../core/ignite/capabilities/glossary/live-status.md) shows Ignite's states this way, through the connector's own mapping of states to its medium, within the service's rate budget | optional: a service without reactions reports it cannot, and live status shows nothing there | `addReaction`, `removeReaction` |
 | `message.file` | message | Sends a file into a conversation as the agent, with no caption, returning the message id it made; fetches the files of a message into a folder, each with the id the event named, so an audio file can be transcribed | optional | `uploadFile`, `downloadFile` |
 | `group.manage` | message | Creates a group, joins it, invites a contact to it and archives it: `ignite connect` makes an agent's channel and `ignite disconnect` archives it | optional: a service whose groups only people can make reports it cannot, and the agent's group is made by hand | `createChannel`, `joinChannel`, `inviteUser`, `archiveChannel` |
+| `group.document` | message | Keeps one document a group shares: the `/agent` panel's Docs tab and `ignite docs` open a repository Markdown file in the agent's channel canvas (one per channel on Slack's free plan), read it back as HTML (turned into Markdown by the Slack connector's `lib/canvas-markdown.js`) and rename it to the file's path | optional: Slack-only today, and no adapter provides it yet; where it is absent the Docs tab cannot open a document | `channelCanvas`, `canvasCreate`, `canvasEdit`, `canvasRename`, `canvasRead` |
 | `approval.secure` | panel | The payment gate's owner side: a form only the owner can open and submit (`/payments`, with the PIN), buttons in the request's thread message (Approve and Refuse, replaced by the outcome once decided), a text seen by one user only, and views stacked on the form. Blocks, modals and views belong here, not to messaging; a messaging connector that cannot carry a secure approval (WhatsApp) does not provide it, and payments refuse that connector. The `/legend` modal, which explains live status, rides this same medium | required for payments, never for messaging | `postBlocks`, `updateMessage`, `postEphemeral`, `openView`, `pushView`, `updateView` |
 | none | ignite-internal | The client's own session: the identity Ignite uses to recognise its own messages (`auth`) and the stop of the socket when the service stops (`stop`). The adapter does both for itself; no port command or listener asks for them | — | `auth`, `stop` |
 
-Methods of the Slack class that Ignite never calls are not part of the contract: `canvasCreate` and `canvasEdit` are Slack-only features of the `slack` command, and `api`, `normalize`, `stools` and `tolerated` are the client's internals.
+Methods of the Slack class that Ignite never calls are not part of the contract: `api`, `normalize`, `stools` and `tolerated` are the client's internals.
 
 ## Call sites
 
@@ -53,6 +54,11 @@ One row per production file under `core/ignite/` and Slack class method it reach
 | `legend.js` | `openView` | panel | `/legend` opens the live status legend |
 | `agent-panel.js` | `openView` | panel | `/agent` opens the agent panel |
 | `agent-panel.js` | `updateView` | panel | A tab button redraws the agent panel on that tab |
+| `docs.js` | `channelCanvas` | message | `group.document`: the canvas the agent's channel already has, or none |
+| `docs.js` | `canvasCreate` | message | `group.document`: the channel canvas, made with the first document opened |
+| `docs.js` | `canvasEdit` | message | `group.document`: the document replaces what the canvas holds |
+| `docs.js` | `canvasRename` | message | `group.document`: the canvas title becomes the document's path |
+| `docs.js` | `canvasRead` | message | `group.document`: the canvas as it is now, compared with what was opened or last pulled |
 
 ## Inbound event
 
@@ -99,8 +105,8 @@ The panel's interactive payloads (Slack: an `interactive` envelope). Ignite read
 |---|---|---|---|
 | button (`block_actions`) | `type` | required | `block_actions` |
 | button | `user.id`, `user.team_id` or `team.id` | required | The owner check |
-| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings`; in the agent panel, `agent_tab_` and the tab |
-| button | `actions[0].value` | required for approve, refuse and an agent panel tab | The request id, or the tab to show |
+| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings`; in the agent panel, `agent_tab_` and the tab, or `agent_doc_open_` and the document's place in the list |
+| button | `actions[0].value` | required for approve, refuse and an agent panel tab or document | The request id, the tab to show, or the document's path |
 | button | `actions[0].action_ts` | required | The key a replayed press is recognised by |
 | button | `trigger_id` | required | Opening the PIN form or the settings form |
 | button | `view.id` | optional | Present when pressed inside a panel: a payment form is pushed on top of it; the agent panel redraws that view |

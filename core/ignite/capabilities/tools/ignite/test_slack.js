@@ -387,6 +387,32 @@ test('canvasEdit', async () => {
   assert.equal(calls[0].headers.authorization, 'Bearer xoxb-test');
 });
 
+test('canvasRename, channelCanvas and canvasRead: the canvas id, its HTML with the bot token from slack.com only', async () => {
+  const { slack, calls } = harness({
+    'canvases.edit': { ok: true },
+    'conversations.info': (body) => ({
+      C1: { ok: true, channel: { properties: { canvas: { file_id: 'Fcanvas' } } } },
+      // The shape a free workspace returned on 2026-10-17 for a channel whose canvas was made by conversations.canvases.create.
+      C3: { ok: true, channel: { properties: { tabs: [{ type: 'files', label: '', id: 'files' }, { id: 'Ct0C9JS5MPLP', label: 'Fabinho canvas test', type: 'canvas', data: { file_id: 'F0CA3U6KZSQ', shared_ts: '1792213810.130039' } }] } } },
+    }[body.channel] || { ok: true, channel: { properties: { tabs: [{ type: 'files', label: '', id: 'files' }] } } }),
+    'files.info': (body) => ({ ok: true, file: { title: 'Doc', comments_count: 2, url_private_download: body.file === 'Fbad' ? 'https://evil.test/x' : 'https://files.slack.com/files-pri/T1-Fcanvas/download/doc' } }),
+  });
+  assert.deepEqual(await slack.canvasRename({ canvasId: 'Fcanvas', title: 'Doc' }), { canvasId: 'Fcanvas' });
+  assert.deepEqual(JSON.parse(calls[0].body.changes), [{ operation: 'rename', title_content: { type: 'markdown', markdown: 'Doc' } }]);
+  assert.equal(await slack.channelCanvas('C1'), 'Fcanvas');
+  assert.equal(await slack.channelCanvas('C2'), null);
+  assert.equal(await slack.channelCanvas('C3'), 'F0CA3U6KZSQ');
+  const downloads = [];
+  const real = slack.fetch;
+  slack.fetch = async (url, opts) => (String(url).startsWith('https://files.slack.com/')
+    ? (downloads.push({ url, auth: opts.headers.authorization }), { ok: true, status: 200, text: async () => '<p>hi</p>' })
+    : real(url, opts));
+  assert.deepEqual(await slack.canvasRead('Fcanvas'), { html: '<p>hi</p>', comments: 2 });
+  assert.deepEqual(downloads, [{ url: 'https://files.slack.com/files-pri/T1-Fcanvas/download/doc', auth: 'Bearer xoxb-test' }]);
+  await assert.rejects(slack.canvasRead('Fbad'), /no slack\.com download address/);
+  assert.equal(downloads.length, 1);
+});
+
 test('socket acks an event before onEvent runs', async () => {
   const { slack, FakeWS } = harness({
     'auth.test': authOk,

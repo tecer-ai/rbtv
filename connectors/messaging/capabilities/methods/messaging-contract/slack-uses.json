@@ -1,8 +1,10 @@
 {
   "files": {
-    "agent-panel.js": "07af4554365b3bd800d344c4df7ee3621199509c68c3eab4b23fc5ae9abfb131",
+    "agent-panel.js": "6e697921f19292867a076ea8c05e06f5c0179d3b7454d278a83d651a0459ec24",
+    "cli.js": "c5d6a734121776df7c11f202d74e8000496ae4ec0f90d1b3695e5868829f8865",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
     "daemon.js": "0b7f323c8e3fd8d9edca4cfd8d7603741f56f2a5c3f51ed55d5a0244f31e10f2",
+    "docs.js": "e2abdc0ef744adffe2c19803e5f9564aaaf2441f554407ad1af076ef47e21e4c",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "listener.js": "57096a4b25095fe6889a7f859043393501d90006dc9c28b838e1ec28cc8560b0",
@@ -39,13 +41,43 @@
     },
     {
       "file": "agent-panel.js",
+      "line": "const result = await openDoc({ slack: slack(), store: db, workspace: config().workspace, channel, path: wanted });",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "const result = await openDoc({ slack: slack(), store: db, workspace: config().workspace, channel, path: wanted });",
+      "nth": 1,
+      "kind": "binding"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (result.opened) return `Opened \\`${esc(wanted)}\\` in this channel's canvas: <https://app.slack.com/docs/${config().slack.team}/${result.canvasId}|open it>.`;",
+      "nth": 0,
+      "kind": "path"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (result.opened) return `Opened \\`${esc(wanted)}\\` in this channel's canvas: <https://app.slack.com/docs/${config().slack.team}/${result.canvasId}|open it>.`;",
+      "nth": 1,
+      "kind": "config"
+    },
+    {
+      "file": "agent-panel.js",
       "line": "await slack().openView(payload.trigger_id, view(slug, TABS[0].id));",
       "nth": 0,
       "kind": "call:openView"
     },
     {
       "file": "agent-panel.js",
-      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
+      "line": "await slack().updateView(payload.view.id, view(slug, 'docs', notice));",
+      "nth": 0,
+      "kind": "call:updateView"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().updateView(payload.view.id, view(slug, act.value));",
       "nth": 0,
       "kind": "call:updateView"
     },
@@ -108,6 +140,42 @@
       "line": "workspace: ctx.config.slack.team,",
       "nth": 0,
       "kind": "config"
+    },
+    {
+      "file": "cli.js",
+      "line": "const { Slack } = require('./slack.js');",
+      "nth": 0,
+      "kind": "path"
+    },
+    {
+      "file": "cli.js",
+      "line": "const slack = deps.slack || new Slack({ botToken: slackToken(ctx.config, 'bot'), stoolsWorkspace: ctx.config.slack.stoolsWorkspace });",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "cli.js",
+      "line": "const slack = deps.slack || new Slack({ botToken: slackToken(ctx.config, 'bot'), stoolsWorkspace: ctx.config.slack.stoolsWorkspace });",
+      "nth": 1,
+      "kind": "binding"
+    },
+    {
+      "file": "cli.js",
+      "line": "const slack = deps.slack || new Slack({ botToken: slackToken(ctx.config, 'bot'), stoolsWorkspace: ctx.config.slack.stoolsWorkspace });",
+      "nth": 2,
+      "kind": "config"
+    },
+    {
+      "file": "cli.js",
+      "line": "const pulled = await docs.pullDoc({ slack, store: ctx.store });",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "cli.js",
+      "line": "const result = await docs.openDoc({ slack, store: ctx.store, workspace: ctx.workspace, channel, path: positionals[0], force: Boolean(opts.force) });",
+      "nth": 0,
+      "kind": "binding"
     },
     {
       "file": "cli.js",
@@ -504,6 +572,96 @@
       "line": "socket = slack;",
       "nth": 0,
       "kind": "call:connect,stop"
+    },
+    {
+      "file": "docs.js",
+      "line": "// openDoc({ slack, store, workspace, channel, path, force? }) → { opened: path, canvasId } or { refused, path, why }; path",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "docs.js",
+      "line": "// pullDoc({ slack, store }) → { path, markdown, edited, comments } or null when no document is open; the canvas as it",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "docs.js",
+      "line": "const { canvasMarkdown } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/canvas-markdown.js');",
+      "nth": 0,
+      "kind": "path"
+    },
+    {
+      "file": "docs.js",
+      "line": "const { canvasMarkdown } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/canvas-markdown.js');",
+      "nth": 1,
+      "kind": "path"
+    },
+    {
+      "file": "docs.js",
+      "line": "async function canvasNow(slack, canvasId, title) {",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "docs.js",
+      "line": "const read = await slack.canvasRead(canvasId);",
+      "nth": 0,
+      "kind": "call:canvasRead"
+    },
+    {
+      "file": "docs.js",
+      "line": "async function openDoc({ slack, store, workspace, channel, path: wanted, force = false }) {",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "docs.js",
+      "line": "let canvasId = await slack.channelCanvas(channel);",
+      "nth": 0,
+      "kind": "call:channelCanvas"
+    },
+    {
+      "file": "docs.js",
+      "line": "const now = await canvasNow(slack, canvasId, record.path);",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "docs.js",
+      "line": "await slack.canvasEdit({ canvasId, markdown });",
+      "nth": 0,
+      "kind": "call:canvasEdit"
+    },
+    {
+      "file": "docs.js",
+      "line": "await slack.canvasRename({ canvasId, title: wanted });",
+      "nth": 0,
+      "kind": "call:canvasRename"
+    },
+    {
+      "file": "docs.js",
+      "line": "({ canvasId } = await slack.canvasCreate({ channel, markdown, title: wanted }));",
+      "nth": 0,
+      "kind": "call:canvasCreate"
+    },
+    {
+      "file": "docs.js",
+      "line": "const baseline = (await canvasNow(slack, canvasId, wanted)).markdown;",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "docs.js",
+      "line": "async function pullDoc({ slack, store }) {",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "docs.js",
+      "line": "const now = await canvasNow(slack, record.canvasId, record.path);",
+      "nth": 0,
+      "kind": "binding"
     },
     {
       "file": "history.js",

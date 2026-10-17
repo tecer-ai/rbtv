@@ -2,10 +2,10 @@
 
 // The /agent panel: the owner types /agent in an agent's channel, or in the app's direct messages for
 // config.dmAgent, and a modal shows that agent. Tab buttons redraw it in place: Configuration (Overview,
-// Installed, Prompt), State (Board, Timers), Work (Tasks, Sub-agents) and Approvals (Payments). It reads the agent's
+// Installed, Prompt), State (Board, Timers), Work (Tasks, Sub-agents), Approvals (Payments) and Docs (Recent). It reads the agent's
 // agent.json, prompt.md, board file, its store (schedules, open work, the running turn, progress notes), cast's handle
-// registry and the payment ledger. It changes nothing itself: Approve and Refuse on a payment are the payment
-// panel's own buttons, handled there with its PIN.
+// registry and the payment ledger. It changes nothing itself but the channel canvas, when the owner opens a document
+// in it (docs.js); Approve and Refuse on a payment are the payment panel's own buttons, handled there with its PIN.
 //
 // API
 // createAgentPanel({ slack, config, store, gate?, log?, launches?, now? }) → { ack(type, payload), handle(type, payload), redraw(view) }
@@ -17,7 +17,7 @@
 //   null otherwise, and for anything else. handle then opens the panel with the command's trigger_id, or, for a
 //   tab button pressed inside the panel, redraws it with views.update. Both re-check the owner; anyone else's
 //   button changes nothing. handle never rejects: a failed Slack call is logged as { event: 'agent-panel' }.
-// agentView({ slug, home, store, tab, gate?, launches?, now? }) → the panel's modal on one tab; an unknown tab shows the first.
+// agentView({ slug, home, store, tab, gate?, workspace?, channel?, notice?, launches?, now? }) → the panel's modal on one tab; an unknown tab shows the first.
 // castLaunches() → every launch in cast's handle registry, its latest row per process, with alive.
 // agentOf(config, payload) → the slug a slash command's channel answers to, or null.
 // TABS — the tab ids, in order, each with its group and label.
@@ -31,10 +31,12 @@ const { agentHome } = require('./config.js');
 const { boardPath } = require('./board.js');
 const { plain, section, context, esc, modal } = require('./blocks.js');
 const { isOwner, promptBlocks } = require('./payment-panel.js');
+const { recentDocs, openDocument, openDoc } = require('./docs.js');
 
 const COMMAND = '/agent';
 const VIEW = 'agent_panel';
 const ACTION = 'agent_tab';
+const OPEN_DOC = 'agent_doc_open';
 const TABS = Object.freeze([
   { id: 'overview', group: 'Configuration', label: 'Overview' },
   { id: 'installed', group: 'Configuration', label: 'Installed' },
@@ -44,6 +46,7 @@ const TABS = Object.freeze([
   { id: 'tasks', group: 'Work', label: 'Tasks' },
   { id: 'subagents', group: 'Work', label: 'Sub-agents' },
   { id: 'payments', group: 'Approvals', label: 'Payments' },
+  { id: 'docs', group: 'Docs', label: 'Recent' },
 ]);
 const GROUPS = [...new Set(TABS.map((tab) => tab.group))];
 // Slack's limits: a modal's title, the characters of a section, the blocks of a view.
@@ -222,6 +225,24 @@ const BODY = {
       context('Settings and every agent\'s payments: /payments. External message approvals will show here once Ignite has a message gate.'),
     ];
   },
+  docs(agent, store, { workspace, channel, now }) {
+    const name = esc(agent.externalName || agent.name);
+    const open = store && openDocument(store);
+    const docs = store && workspace ? recentDocs(store, workspace) : [];
+    const head = section(open
+      ? `*In the canvas:* \`${esc(open.path)}\` (opened ${ago(open.openedAt, now)}). Edit it there; ask ${name} to bring your edits into the file.`
+      : '*In the canvas:* nothing yet.');
+    const rows = docs.map((doc, i) => ({
+      ...section(`\`${esc(doc.path)}\`\n_from a turn ${ago(doc.at, now)}_`),
+      ...(channel ? { accessory: { type: 'button', action_id: `${OPEN_DOC}_${i}`, value: doc.path, text: plain('Open in canvas') } } : {}),
+    }));
+    return [
+      head,
+      ...(channel ? [] : [context(`Documents open in the agent's own channel canvas; ${name} answers in direct messages, so opening is not available here.`)]),
+      ...(rows.length ? rows : [context('No Markdown document in this agent\'s recent turn outputs.')]),
+      context('One canvas per channel: opening a document replaces the one in the canvas, never while it holds edits not yet brought in.'),
+    ];
+  },
 };
 
 // One row of tab buttons; each button's value is the tab it opens. `row` keeps action ids unique per row.
@@ -238,13 +259,13 @@ function tabButtons(row, tabs) {
   };
 }
 
-function agentView({ slug, home, store, tab, gate = null, launches = castLaunches, now = Date.now() }) {
+function agentView({ slug, home, store, tab, gate = null, workspace = null, channel = null, notice = null, launches = castLaunches, now = Date.now() }) {
   const current = TABS.find((t) => t.id === tab) || TABS[0];
   const read = readAgent(home);
   const groups = GROUPS.map((group) => ({ id: TABS.find((t) => t.group === group).id, label: group, selected: group === current.group }));
   const subTabs = TABS.filter((t) => t.group === current.group).map((t) => ({ ...t, selected: t === current }));
   const nav = [tabButtons('group', groups), tabButtons('tab', subTabs), { type: 'divider' }];
-  const body = read.agent ? BODY[current.id](read.agent, store, { gate, launches, now }) : [section(`This agent cannot be read: ${esc(read.why)}`)];
+  const body = read.agent ? [...(notice ? [context(notice)] : []), ...BODY[current.id](read.agent, store, { gate, workspace, channel, launches, now })] : [section(`This agent cannot be read: ${esc(read.why)}`)];
   const room = MAX_BLOCKS - nav.length;
   const blocks = body.length > room ? [...body.slice(0, room - 1), context('Cut here: Slack shows at most 100 blocks.')] : body;
   const name = read.agent?.externalName || slug;
@@ -256,8 +277,32 @@ function createAgentPanel({ slack, config, store, gate = () => null, log = () =>
     try { log({ event: 'agent-panel', ...fields }); } catch { /* the panel never fails on a log */ }
   }
 
-  function view(slug, tab) {
-    return agentView({ slug, home: agentHome(config(), slug), store: store(slug), tab, gate: gate(), launches, now: now() });
+  // The channel the config routes to the agent: where its canvas is. The direct-message agent has none.
+  function channelOf(slug) {
+    return Object.entries(config().routes || {}).find(([, routed]) => routed === slug)?.[0] || null;
+  }
+
+  function view(slug, tab, notice = null) {
+    return agentView({
+      slug, home: agentHome(config(), slug), store: store(slug), tab, gate: gate(),
+      workspace: config().workspace, channel: channelOf(slug), notice, launches, now: now(),
+    });
+  }
+
+  // The owner's Open in canvas: only a document the Docs tab lists, into the agent's channel canvas.
+  async function openFromPanel(slug, wanted) {
+    const db = store(slug);
+    const channel = channelOf(slug);
+    if (!db || !channel || !recentDocs(db, config().workspace).some((doc) => doc.path === wanted)) return 'That document is not in the list any more. Nothing changed.';
+    try {
+      const result = await openDoc({ slack: slack(), store: db, workspace: config().workspace, channel, path: wanted });
+      if (result.opened) return `Opened \`${esc(wanted)}\` in this channel's canvas: <https://app.slack.com/docs/${config().slack.team}/${result.canvasId}|open it>.`;
+      if (result.refused === 'edited') return `Not opened: \`${esc(result.path)}\` was edited in the canvas since it was opened. Ask the agent to bring the edits in, then open again.`;
+      return 'Not opened: this channel\'s canvas holds something Ignite did not open. Ask the agent to replace it.';
+    } catch (error) {
+      note({ action: 'open-failed', message: error.message });
+      return `Could not open \`${esc(wanted)}\`: ${esc(error.message)}. Nothing in the canvas changed.`;
+    }
   }
 
   function ack(type, payload = {}) {
@@ -276,12 +321,18 @@ function createAgentPanel({ slack, config, store, gate = () => null, log = () =>
       }
       const act = payload.actions?.[0];
       if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;
-      if (!act?.action_id?.startsWith(ACTION)) return;
+      if (!act?.action_id?.startsWith(ACTION) && !act?.action_id?.startsWith(OPEN_DOC)) return;
       if (!isOwner(config(), payload)) {
         note({ action: 'refused', who: payload.user?.id || null });
         return;
       }
-      await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));
+      const slug = payload.view.private_metadata;
+      if (act.action_id.startsWith(OPEN_DOC)) {
+        const notice = await openFromPanel(slug, act.value);
+        await slack().updateView(payload.view.id, view(slug, 'docs', notice));
+        return;
+      }
+      await slack().updateView(payload.view.id, view(slug, act.value));
     } catch (error) {
       note({ action: 'failed', message: error.message });
     }

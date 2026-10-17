@@ -581,7 +581,7 @@ refusals('an option given an empty value is refused and writes nothing', [
   [emptyValue('--file', 'ignite post -h'), ['post', '--text', 'hi', '--file', '']],
   [emptyValue('--agent', 'ignite -h'), ['schedule', 'list', '--agent', '']],
   [emptyValue('--installation', 'ignite -h'), ['schedule', 'list', '--installation', '  ']],
-  ...Object.entries(VERBS).flatMap(([verb, { options }]) => options.filter((option) => option !== 'audio')
+  ...Object.entries(VERBS).flatMap(([verb, { options }]) => options.filter((option) => option !== 'audio' && option !== 'force')
     .flatMap((option) => ['', '  ', '\t'].map((value) => [emptyValue(`--${option}`, `ignite ${verb} -h`), [...verb.split(' '), `--${option}`, value]]))),
 ]);
 
@@ -665,7 +665,7 @@ test('retired verbs are unknown', () => {
 
 test('dreamer is an unknown command', () => {
   assert.throws(() => run(['dreamer', 'run']), (error) => {
-    assert.match(error.message, /unknown command: dreamer\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, payment, board, remember, runtime, deploy\nNothing changed\.\nignite -h/);
+    assert.match(error.message, /unknown command: dreamer\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, payment, board, remember, runtime, docs, deploy\nNothing changed\.\nignite -h/);
     return true;
   });
 });

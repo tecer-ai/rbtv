@@ -71,6 +71,8 @@
 //   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it. A row
 //   is inserted with shown {} (nothing shown yet); a NULL shown, as in a row made before the column, is
 //   an unknown display
+// getSetting(key) / setSetting(key, value) — one JSON value per key in settings; null deletes it
+// finishedOutputs(limit = 50) — the outputs each of the newest finished runs reported, with its endedAt
 // addNote({ conversationKey, text, createdAt? }) — one progress note an agent wrote in a turn of that conversation
 // listNotes(conversationKey, limit = 5) — its newest notes first
 // getRun(runId) — a run with its queue row's conversation_key, work_id and kind, or null
@@ -1040,6 +1042,25 @@ class Store {
 
   setLiveShown(channel, ts, shown) {
     this.db.prepare('UPDATE live_status SET shown=? WHERE channel=? AND ts=?').run(json(shown), channel, ts);
+  }
+
+  getSetting(key) {
+    return parse(this.db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value);
+  }
+
+  setSetting(key, value) {
+    if (value == null) this.db.prepare('DELETE FROM settings WHERE key=?').run(key);
+    else this.db.prepare(`INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`).run(key, JSON.stringify(value), Date.now());
+  }
+
+  finishedOutputs(limit = 50) {
+    return this.db.prepare("SELECT output, ended_at FROM runs WHERE state='finished' AND output IS NOT NULL ORDER BY ended_at DESC LIMIT ?")
+      .all(limit).map((row) => {
+        let outputs = [];
+        try { outputs = JSON.parse(row.output)?.outputs || []; } catch { /* a result that is not JSON reported no outputs */ }
+        return { outputs: Array.isArray(outputs) ? outputs.filter((one) => typeof one === 'string') : [], endedAt: row.ended_at };
+      });
   }
 
   addNote({ conversationKey: conversationKeyValue, text, createdAt = Date.now() }) {

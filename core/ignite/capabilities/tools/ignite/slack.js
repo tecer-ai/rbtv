@@ -40,6 +40,11 @@
 // downloadFile({ channel, ts, threadTs?, dir }) → [{ id?, path, name }]  via slack download
 // canvasCreate({ channel, markdown, title? }) → { canvasId }   bot token, conversations.canvases.create
 // canvasEdit({ canvasId, markdown, operation? }) → { canvasId }   bot token, canvases.edit
+// canvasRename({ canvasId, title }) → { canvasId }   bot token, canvases.edit rename
+// channelCanvas(channel) → the id of the channel's canvas, or null   conversations.info properties.canvas, else its
+//   first canvas tab
+// canvasRead(canvasId) → { html, comments }   files.info, then its url_private_download with the bot token,
+//   fetched only from a slack.com address; comments is the canvas's comment count (their text is not returned)
 // postBlocks({ channel, threadTs?, text, blocks }) → { channel, ts }   chat.postMessage with Block Kit blocks
 // updateMessage({ channel, ts, text, blocks }) → chat.update
 // postEphemeral({ channel, user, text }) → chat.postEphemeral, seen by that user only
@@ -192,7 +197,7 @@ class Slack {
       throw error;
     }
     const data = await response.json();
-    if (!data.ok) throw new Error(`Slack ${method}: ${data.error || 'unknown_error'}`);
+    if (!data.ok) throw new Error(`Slack ${method}: ${data.error || 'unknown_error'}${data.detail ? ` (${data.detail})` : ''}`);
     return data;
   }
 
@@ -369,6 +374,35 @@ class Slack {
       changes: [{ operation, document_content: { type: 'markdown', markdown } }],
     });
     return { canvasId };
+  }
+
+  async canvasRename({ canvasId, title } = {}) {
+    if (!canvasId || !title) throw new Error('canvasRename requires canvasId and title');
+    await this.api('canvases.edit', {
+      canvas_id: canvasId,
+      changes: [{ operation: 'rename', title_content: { type: 'markdown', markdown: title } }],
+    });
+    return { canvasId };
+  }
+
+  async channelCanvas(channel) {
+    if (!channel) throw new Error('channelCanvas requires channel');
+    const data = await this.api('conversations.info', { channel });
+    // properties.canvas is the documented place; a free workspace's channel canvas showed only as a canvas tab
+    // (observed 2026-10-17: properties.tabs [{ type: 'canvas', data: { file_id } }] and no properties.canvas).
+    const properties = data.channel?.properties || {};
+    return properties.canvas?.file_id || (properties.tabs || []).find((tab) => tab.type === 'canvas')?.data?.file_id || null;
+  }
+
+  async canvasRead(canvasId) {
+    if (!canvasId) throw new Error('canvasRead requires canvasId');
+    const { file = {} } = await this.api('files.info', { file: canvasId });
+    const url = file.url_private_download;
+    // The bot token goes only to Slack's own file host.
+    if (!url || !/^https:\/\/([a-z0-9-]+\.)*slack\.com\//i.test(url)) throw new Error(`Slack files.info gave canvas ${canvasId} no slack.com download address`);
+    const response = await this.fetch(url, { method: 'GET', headers: { authorization: `Bearer ${this.config.botToken}` } });
+    if (!response.ok) throw new Error(`Slack canvas download: HTTP ${response.status}`);
+    return { html: await response.text(), comments: file.comments_count || 0 };
   }
 
   async postBlocks({ channel, threadTs, text, blocks } = {}) {

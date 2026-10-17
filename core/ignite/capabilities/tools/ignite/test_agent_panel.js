@@ -77,7 +77,8 @@ function panelFor(inst, slack) {
   return { panel, logs };
 }
 
-const texts = (view) => view.blocks.map((block) => [block.text?.text || '', ...(block.fields || []).map((field) => field.text)].join('\n')).join('\n');
+const texts = (view) => view.blocks.map((block) => [block.text?.text || '', ...(block.fields || []).map((field) => field.text),
+  ...(block.type === 'context' ? block.elements.map((element) => element.text) : [])].join('\n')).join('\n');
 const button = (view, tab, value = tab) => ({
   type: 'block_actions', user: { id: 'UOWNER', team_id: 'T1' }, trigger_id: 'trig-2',
   view: { id: view, callback_id: 'agent_panel', private_metadata: 'developer' },
@@ -313,6 +314,43 @@ async function main() {
     assert.equal(panel.redraw({ callback_id: 'payments_panel' }), null);
   });
 
+  await test('Docs lists recent Markdown outputs with Open in canvas in the agent\'s channel, and Open writes the canvas', async () => {
+    const inst = installation();
+    const doc = path.join(inst.workspace, 'notes', 'plan.md');
+    fs.mkdirSync(path.dirname(doc), { recursive: true });
+    fs.writeFileSync(doc, 'The plan\n');
+    const key = 'T1:C1:1.1';
+    inst.store.upsertConversation({ key, agent: 'developer', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+    inst.store.db.prepare("INSERT INTO queue(id, conversation_key, kind, payload, priority, available_at, state, attempts, created_at) VALUES ('q', ?, 'owner', '{}', 0, 0, 'done', 1, 0)").run(key);
+    inst.store.db.prepare("INSERT INTO runs(id, queue_id, nonce, state, output, started_at, ended_at) VALUES ('r', 'q', 'n', 'finished', ?, 0, ?)").run(JSON.stringify({ outputs: [doc] }), Date.now() - 3600000);
+    const canvas = { lines: null, title: null };
+    const slack = {
+      ...fakeSlack(),
+      async channelCanvas() { return canvas.lines ? 'Fdoc' : null; },
+      async canvasCreate({ markdown, title }) { canvas.lines = markdown; canvas.title = title; return { canvasId: 'Fdoc' }; },
+      async canvasRead() { return { html: `<h1>${canvas.title}</h1><p class="line">${canvas.lines.trim()}</p>`, comments: 0 }; },
+    };
+    slack.calls = slack.calls || [];
+    const { panel } = panelFor(inst, slack);
+    const before = agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'docs', workspace: inst.workspace, channel: 'C1' });
+    const row = before.blocks.find((block) => block.accessory?.action_id === 'agent_doc_open_0');
+    assert.match(row.text.text, /^`notes\/plan\.md`\n_from a turn 1 h ago_$/);
+    assert.equal(row.accessory.value, 'notes/plan.md');
+    assert.match(texts(before), /\*In the canvas:\* nothing yet\./);
+    const dm = agentView({ slug: 'developer', home: inst.home, store: inst.store, tab: 'docs', workspace: inst.workspace, channel: null });
+    assert.ok(!dm.blocks.some((block) => block.accessory), 'no Open without a channel');
+    assert.match(texts(dm), /opening is not available here/);
+    const press = { ...button('V9', 'docs'), actions: [{ action_id: 'agent_doc_open_0', value: 'notes/plan.md' }] };
+    await panel.handle('interactive', press);
+    assert.equal(canvas.title, 'notes/plan.md');
+    assert.equal(canvas.lines, 'The plan\n');
+    const shown = slack.calls.at(-1).args[1];
+    assert.match(texts(shown), /Opened `notes\/plan\.md` in this channel's canvas: <https:\/\/app\.slack\.com\/docs\/T1\/Fdoc\|open it>\./);
+    assert.match(texts(shown), /\*In the canvas:\* `notes\/plan\.md` \(opened just now\)/);
+    await panel.handle('interactive', { ...press, actions: [{ action_id: 'agent_doc_open_0', value: '../../etc/passwd.md' }] });
+    assert.match(texts(slack.calls.at(-1).args[1]), /That document is not in the list any more\. Nothing changed\./);
+  });
+
   await test('a failed Slack call is logged and never thrown', async () => {
     const inst = installation();
     const slack = fakeSlack({ fail: true });
@@ -321,7 +359,7 @@ async function main() {
     assert.deepEqual(logs, [{ event: 'agent-panel', action: 'failed', message: 'slack down' }]);
   });
 
-  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers', 'tasks', 'subagents', 'payments']);
+  assert.deepEqual(TABS.map((tab) => tab.id), ['overview', 'installed', 'prompt', 'board', 'timers', 'tasks', 'subagents', 'payments', 'docs']);
   console.log(`${passed} passed, ${failures.length} failed`);
   if (failures.length) process.exit(1);
 }
