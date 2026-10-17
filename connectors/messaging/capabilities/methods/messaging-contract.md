@@ -51,6 +51,8 @@ One row per production file under `core/ignite/` and Slack class method it reach
 | `payment-panel.js` | `pushView` | panel | A form on top of the panel |
 | `payment-panel.js` | `updateView` | panel | The form becomes its outcome, or the form again with the reason |
 | `legend.js` | `openView` | panel | `/legend` opens the live status legend |
+| `agent-panel.js` | `openView` | panel | `/agent` opens the agent panel |
+| `agent-panel.js` | `updateView` | panel | A tab button redraws the agent panel on that tab |
 
 ## Inbound event
 
@@ -77,14 +79,16 @@ The listener treats `connector`, `account`, `from` and `group` as the facts admi
 
 ## Slash command
 
-An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments` and `/legend` are then unreachable there. The test program reads the Field column of this table and of the next section's: every path `messaging-contract/payload-uses.json` lists as read by the panel's files must appear in one of them as written (`trigger_id`, `view.callback_id`, `actions[0].action_id`; a computed index ends a path: `view.state.values[blockId]` is `view.state.values`).
+An inbound command the owner or a user types in the service, delivered to the panel's `ack` and `handle` (Slack: a `slash_commands` envelope). Ignite reads these fields of the payload; a connector without commands delivers none, and `/payments`, `/legend` and `/agent` are then unreachable there. The test program reads the Field column of this table and of the next section's: every path `messaging-contract/payload-uses.json` lists as read by the panel's files must appear in one of them as written (`trigger_id`, `view.callback_id`, `actions[0].action_id`; a computed index ends a path: `view.state.values[blockId]` is `view.state.values`).
 
 | Field | Presence | Read for |
 |---|---|---|
-| `command` | required | Which command: `/payments` or `/legend` |
+| `command` | required | Which command: `/payments`, `/legend` or `/agent` |
 | `trigger_id` | required | Opening a view in answer; valid for seconds, so the acknowledgement is immediate and the view is opened after it |
-| `user_id` | required | The owner check for `/payments` (`/legend` is for any user) |
+| `user_id` | required | The owner check for `/payments` and `/agent` (`/legend` is for any user) |
 | `team_id` | required | The owner check: the user id counts only within the configured team |
+| `channel_id` | required for `/agent` | The channel it was typed in: the agent `routes` maps it to |
+| `channel_name` | required for `/agent` | `directmessage` in a direct message: the panel shows `dmAgent` |
 | the acknowledgement's `text` | optional | A refusal shown to the one who typed, returned by `ack` before any work |
 
 ## Buttons and forms
@@ -95,11 +99,12 @@ The panel's interactive payloads (Slack: an `interactive` envelope). Ignite read
 |---|---|---|---|
 | button (`block_actions`) | `type` | required | `block_actions` |
 | button | `user.id`, `user.team_id` or `team.id` | required | The owner check |
-| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings` |
-| button | `actions[0].value` | required for approve and refuse | The request id |
+| button | `actions[0].action_id` | required | `payments_approve`, `payments_refuse` or `payments_settings`; in the agent panel, `agent_tab_` and the tab |
+| button | `actions[0].value` | required for approve, refuse and an agent panel tab | The request id, or the tab to show |
 | button | `actions[0].action_ts` | required | The key a replayed press is recognised by |
 | button | `trigger_id` | required | Opening the PIN form or the settings form |
-| button | `view.id` | optional | Present when pressed inside the panel: the form is pushed on top of it |
+| button | `view.id` | optional | Present when pressed inside a panel: a payment form is pushed on top of it; the agent panel redraws that view |
+| button | `view.callback_id`, `view.private_metadata` | required in the agent panel | `agent_panel`, and the agent the panel shows |
 | button | `channel.id` | optional | Present when pressed in a thread message: a refusal is shown there to that user |
 | form (`view_submission`) | `type` | required | `view_submission` |
 | form | `user.id`, `user.team_id` or `team.id` | required | The owner check |

@@ -1,20 +1,48 @@
 {
   "files": {
+    "agent-panel.js": "65fd3ae7c3e4893293768f4f00e210ff39f863547455c2f43f9fbfa6df7b4937",
     "connect.js": "9fa934c2e2ae0292b05a93431e80eaa634a81750b159ceeaa42b14146126cf21",
-    "daemon.js": "405a8cdfc848b6cb88b86481054c728753dacda566526618417a415c459a96a9",
-    "history.js": "d26625c521bb2a6d9eb90f7dc78270d550b9c7741a0436f94c60c6c8b63ec201",
+    "daemon.js": "db31d402beb3b000230f33e698dfccd58e6572ef0991448778ccca4d948be60d",
     "ingress.js": "8f8d72734b887bcdc15508ff271470a8d1f6dcc6a546854cf01a5374229ae353",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
     "listener.js": "57096a4b25095fe6889a7f859043393501d90006dc9c28b838e1ec28cc8560b0",
     "outbox.js": "50f73b6fde3f1707b63bb4b72bd24a97d8f14ac728ae62a6179b4c2d2049febb",
-    "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
+    "payment-panel.js": "c9b997327a50b72254fa7dca4bcf1a5cee07c845096f9877a8dea7faa268a500",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a",
-    "prompt.js": "56d396b1b67283a95c3df1e7a7f27148a5506d2191503080464607f253712e7b",
     "status-ticker.js": "6bb034786dba62782c371388544d001dbb521b4454cf9a9cd4594a041820b4cc",
-    "store.js": "d83a8f3b12ba4a0ec17446535b50ab507581bd1a32d32c7abf20bee86ed57a9e",
     "turn-loop.js": "f139c4da88102022f339e5145586ed4566c1f724dd3dea15ae6f1d1ee568b54f"
   },
   "uses": [
+    {
+      "file": "agent-panel.js",
+      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "//   slack() → the Slack client; config() → Ignite's config; store(slug) → that agent's Store, or null.",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "function createAgentPanel({ slack, config, store, log = () => {} } = {}) {",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().openView(payload.trigger_id, view(slug, TABS[0].id));",
+      "nth": 0,
+      "kind": "call:openView"
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
+      "nth": 0,
+      "kind": "call:updateView"
+    },
     {
       "file": "albert-evidence.js",
       "line": "return !meta.source || ['slack', 'used-text'].includes(meta.source);",
@@ -89,7 +117,7 @@
     },
     {
       "file": "config.js",
-      "line": "// slackToken(config, key)      \u2014 the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset",
+      "line": "// slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset",
       "nth": 0,
       "kind": "comment"
     },
@@ -389,6 +417,18 @@
     },
     {
       "file": "daemon.js",
+      "line": "const agentPanel = createAgentPanel({ slack: () => slack, config: () => config, store: (slug) => getStore(slug), log });",
+      "nth": 0,
+      "kind": "binding"
+    },
+    {
+      "file": "daemon.js",
+      "line": "const agentPanel = createAgentPanel({ slack: () => slack, config: () => config, store: (slug) => getStore(slug), log });",
+      "nth": 1,
+      "kind": "binding"
+    },
+    {
+      "file": "daemon.js",
       "line": "slack: () => slack,",
       "nth": 2,
       "kind": "binding"
@@ -515,19 +555,19 @@
     },
     {
       "file": "legend.js",
-      "line": "// createLegend({ slack, log? }) \u2192 { handle(type, payload) }",
+      "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "legend.js",
-      "line": "//   slack() \u2192 the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+      "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "legend.js",
-      "line": "//   slack() \u2192 the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
+      "line": "//   slack() → the Slack client. handle is an interactions handle of slack.js connect, run after the ACK:",
       "nth": 1,
       "kind": "comment"
     },
@@ -773,13 +813,13 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) \u2192 { ack(type, payload), handle(type, payload) }",
+      "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "payment-panel.js",
-      "line": "//   gate() \u2192 the Gate, or null when the config has no payments section; slack() \u2192 the Slack client;",
+      "line": "//   gate() → the Gate, or null when the config has no payments section; slack() → the Slack client;",
       "nth": 0,
       "kind": "comment"
     },
@@ -791,21 +831,45 @@
     },
     {
       "file": "payment-panel.js",
+      "line": "// isOwner(config, payload) → whether an interaction comes from config.slack.ownerUserId within config.slack.team; the",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// isOwner(config, payload) → whether an interaction comes from config.slack.ownerUserId within config.slack.team; the",
+      "nth": 1,
+      "kind": "comment"
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// Whether an interaction comes from the owner: the payload's user is config.slack.ownerUserId within config.slack.team.",
+      "nth": 0,
+      "kind": "comment"
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// Whether an interaction comes from the owner: the payload's user is config.slack.ownerUserId within config.slack.team.",
+      "nth": 1,
+      "kind": "comment"
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "return Boolean(user && user === config.slack.ownerUserId && team && team === config.slack.team);",
+      "nth": 0,
+      "kind": "config"
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "return Boolean(user && user === config.slack.ownerUserId && team && team === config.slack.team);",
+      "nth": 1,
+      "kind": "config"
+    },
+    {
+      "file": "payment-panel.js",
       "line": "function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {} } = {}) {",
       "nth": 0,
       "kind": "binding"
-    },
-    {
-      "file": "payment-panel.js",
-      "line": "return Boolean(user && user === cfg.slack.ownerUserId && team && team === cfg.slack.team);",
-      "nth": 0,
-      "kind": "config"
-    },
-    {
-      "file": "payment-panel.js",
-      "line": "return Boolean(user && user === cfg.slack.ownerUserId && team && team === cfg.slack.team);",
-      "nth": 1,
-      "kind": "config"
     },
     {
       "file": "payment-panel.js",
@@ -857,13 +921,13 @@
     },
     {
       "file": "payment-runner.js",
-      "line": "// createPaymentRunner({ gate, slack, store, connectors, run?, env?, cwd, log?, kick?, now? }) \u2192 { step(), stop() }",
+      "line": "// createPaymentRunner({ gate, slack, store, connectors, run?, env?, cwd, log?, kick?, now? }) → { step(), stop() }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "payment-runner.js",
-      "line": "//   gate \u2014 the Gate. slack() \u2192 the Slack client, or null. store(slug) \u2192 that agent's open Store, or null.",
+      "line": "//   gate — the Gate. slack() → the Slack client, or null. store(slug) → that agent's open Store, or null.",
       "nth": 0,
       "kind": "comment"
     },
@@ -893,13 +957,13 @@
     },
     {
       "file": "status-ticker.js",
-      "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) \u2192 { step(), stop() }",
+      "line": "// createTicker({ stores, slack, now?, log?, pace?, callMs? }) → { step(), stop() }",
       "nth": 0,
       "kind": "comment"
     },
     {
       "file": "status-ticker.js",
-      "line": "//   stores() \u2192 [{ slug, store }], the agents' open stores. slack() \u2192 the Slack client, or null while",
+      "line": "//   stores() → [{ slug, store }], the agents' open stores. slack() → the Slack client, or null while",
       "nth": 0,
       "kind": "comment"
     },

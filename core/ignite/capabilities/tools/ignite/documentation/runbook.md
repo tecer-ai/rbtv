@@ -165,6 +165,10 @@ ignite --agent <slug> --installation <installation> work retry <work-id>
 
 The setting applies from the next turn in every conversation of that agent.
 
+## Agent panel
+
+`/agent` opens, for the owner only, a modal about the agent of the channel it is typed in: the agent `routes` maps the channel to, or `dmAgent` in a direct message. Its tabs read the agent's `agent.json`, `prompt.md`, `_artifacts/board.md` and schedule rows, and change nothing. Anyone else, and a channel no agent answers in, gets a one-line refusal. **Owner setup:** in the Slack app (api.slack.com), under Slash Commands, create `/agent` with no request URL, as for `/payments`; reinstall the app if Slack asks. A Slack call that fails is logged as `{ event: 'agent-panel', action: 'failed' }`; another user's tab button as `{ event: 'agent-panel', action: 'refused' }`.
+
 ## Payments
 
 The [payment gate](../../../glossary/payment-gate.md)'s service side runs when `config.json` has a `payments` section: `"payments": {}` takes the defaults, port 8787, the connector `asaas`, the time zone `America/Sao_Paulo` and the currency `BRL` (keys `webhookPort`, `connectors`, `timeZone`, `currency`; `providers` is the older spelling of `connectors`, accepted until the next deploy). Add it, then restart the service; the service reads it at start. Without it, `ignite payment` refuses and `/payments` answers that payments are not set up. A connector with no withdrawal validation adapter is logged at start as `{ event: 'error', what: 'payment-connector' }`, and Ignite sends nothing through it.

@@ -310,6 +310,34 @@ test('the service opens the live status legend for any user\'s /legend and still
   }
 });
 
+test('the service opens the owner\'s /agent in a direct message for dmAgent and refuses anyone else at the ACK', async () => {
+  const { dir } = workspace();
+  const socket = fakeSocket();
+  const views = [];
+  const slack = { ...fakeSlack(), async openView(triggerId, view) { views.push({ triggerId, view }); return { viewId: 'V1' }; } };
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack, socket, signals: false, tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000 });
+    const command = { command: '/agent', user_id: 'UOWNER', team_id: 'T1', channel_id: 'D1', channel_name: 'directmessage', trigger_id: 'trig-agent' };
+    assert.equal(socket.onInteraction.ack('slash_commands', command), null);
+    await socket.onInteraction.handle('slash_commands', command);
+    assert.equal(views.length, 1);
+    assert.equal(views[0].triggerId, 'trig-agent');
+    assert.equal(views[0].view.callback_id, 'agent_panel');
+    assert.equal(views[0].view.private_metadata, 'master');
+    const other = { ...command, user_id: 'UNOTOWNER', trigger_id: 'trig-other' };
+    assert.deepEqual(socket.onInteraction.ack('slash_commands', other), { text: 'Only the owner can open /agent. Nothing changed.' });
+    await socket.onInteraction.handle('slash_commands', other);
+    assert.equal(views.length, 1);
+  } finally {
+    process.env.PATH = prev;
+    if (runtime) await runtime.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('lock-refusal', async () => {
   const { dir } = workspace();
   const holder = spawnDaemon(dir);

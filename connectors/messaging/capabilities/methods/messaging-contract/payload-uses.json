@@ -1,10 +1,170 @@
 {
   "files": {
+    "agent-panel.js": "65fd3ae7c3e4893293768f4f00e210ff39f863547455c2f43f9fbfa6df7b4937",
     "legend.js": "ca3c33759c855ac770ba99a0f91c38f226a1abef7c3341bfe2df90aff75e022f",
-    "payment-panel.js": "d8482fbf3b4b7b223a9b7c4e2b10bc9ffb557500c8b33fd3810aca8257c3acb9",
+    "payment-panel.js": "c9b997327a50b72254fa7dca4bcf1a5cee07c845096f9877a8dea7faa268a500",
     "payment-runner.js": "eed7c0a552a17f85542d172e9dd762f59a2a460bcf1fe5971496c022f92acd2a"
   },
   "uses": [
+    {
+      "file": "agent-panel.js",
+      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "// createAgentPanel({ slack, config, store, log? }) → { ack(type, payload), handle(type, payload) }",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "// agentOf(config, payload) → the slug a slash command's channel answers to, or null.",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "function agentOf(config, payload) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "const routed = config.routes?.[payload.channel_id];",
+      "nth": 0,
+      "reads": [
+        "channel_id"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "return payload.channel_name === 'directmessage' ? config.dmAgent || null : null;",
+      "nth": 0,
+      "reads": [
+        "channel_name"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "function ack(type, payload = {}) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (type !== 'slash_commands' || payload.command !== COMMAND) return null;",
+      "nth": 0,
+      "reads": [
+        "command"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (!isOwner(config(), payload)) return { text: 'Only the owner can open /agent. Nothing changed.' };",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "return agentOf(config(), payload) ? null : { text: 'No agent answers in this channel. Type /agent in an agent\\'s channel, or in the app\\'s direct messages.' };",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "async function handle(type, payload = {}) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (type === 'slash_commands' && payload.command === COMMAND) {",
+      "nth": 0,
+      "reads": [
+        "command"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "const slug = agentOf(config(), payload);",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (!isOwner(config(), payload) || !slug) return;",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().openView(payload.trigger_id, view(slug, TABS[0].id));",
+      "nth": 0,
+      "reads": [
+        "trigger_id"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "const act = payload.actions?.[0];",
+      "nth": 0,
+      "reads": [
+        "actions[0].action_id",
+        "actions[0].value"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;",
+      "nth": 0,
+      "reads": [
+        "type",
+        "view.callback_id"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (type !== 'interactive' || payload.type !== 'block_actions' || payload.view?.callback_id !== VIEW) return;",
+      "nth": 1,
+      "reads": [
+        "type",
+        "view.callback_id"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "if (!isOwner(config(), payload)) {",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "note({ action: 'refused', who: payload.user?.id || null });",
+      "nth": 0,
+      "reads": [
+        "user.id"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
+      "nth": 0,
+      "reads": [
+        "view.id",
+        "view.private_metadata"
+      ]
+    },
+    {
+      "file": "agent-panel.js",
+      "line": "await slack().updateView(payload.view.id, view(payload.view.private_metadata, act.value));",
+      "nth": 1,
+      "reads": [
+        "view.id",
+        "view.private_metadata"
+      ]
+    },
     {
       "file": "legend.js",
       "line": "// createLegend({ slack, log? }) → { handle(type, payload) }",
@@ -43,6 +203,12 @@
       "file": "payment-panel.js",
       "line": "// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }",
       "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "// isOwner(config, payload) → whether an interaction comes from config.slack.ownerUserId within config.slack.team; the",
+      "nth": 0,
       "reads": []
     },
     {
@@ -108,7 +274,13 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "function isOwner(payload) {",
+      "line": "// Whether an interaction comes from the owner: the payload's user is config.slack.ownerUserId within config.slack.team.",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "function isOwner(config, payload) {",
       "nth": 0,
       "reads": []
     },
@@ -154,6 +326,18 @@
     },
     {
       "file": "payment-panel.js",
+      "line": "const ownerSent = (payload) => isOwner(config(), payload);",
+      "nth": 0,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
+      "line": "const ownerSent = (payload) => isOwner(config(), payload);",
+      "nth": 1,
+      "reads": []
+    },
+    {
+      "file": "payment-panel.js",
       "line": "function ack(type, payload = {}) {",
       "nth": 0,
       "reads": []
@@ -168,7 +352,7 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (!isOwner(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };",
+      "line": "if (!ownerSent(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };",
       "nth": 0,
       "reads": []
     },
@@ -191,7 +375,7 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (!isOwner(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });",
+      "line": "if (!ownerSent(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });",
       "nth": 0,
       "reads": []
     },
@@ -211,7 +395,7 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (!isOwner(payload)) {",
+      "line": "if (!ownerSent(payload)) {",
       "nth": 0,
       "reads": []
     },
@@ -296,7 +480,7 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (!isOwner(payload)) {",
+      "line": "if (!ownerSent(payload)) {",
       "nth": 1,
       "reads": []
     },
@@ -342,7 +526,7 @@
     },
     {
       "file": "payment-panel.js",
-      "line": "if (!isOwner(payload)) {",
+      "line": "if (!ownerSent(payload)) {",
       "nth": 2,
       "reads": []
     },

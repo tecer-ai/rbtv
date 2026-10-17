@@ -22,6 +22,7 @@ const deferred = require('./deferred-deploy.js');
 const { Gate } = require('./payments.js');
 const { createPaymentPanel } = require('./payment-panel.js');
 const { createLegend } = require('./legend.js');
+const { createAgentPanel } = require('./agent-panel.js');
 const { createPaymentRunner } = require('./payment-runner.js');
 const { startWebhook, loadConnector } = require('./payment-webhook.js');
 
@@ -329,12 +330,14 @@ async function startLocked(opts, workspace, held) {
     kick: () => { paymentStep(); },
   });
   const legend = createLegend({ slack: () => slack, log });
-  // Slack's interactions: the payment panel answers its own at the ACK; /legend needs only the bare ACK.
+  const agentPanel = createAgentPanel({ slack: () => slack, config: () => config, store: (slug) => getStore(slug), log });
+  // Slack's interactions: the payment panel and the agent panel answer their own at the ACK; /legend needs only the bare ACK.
   const interactions = {
-    ack: panel.ack,
+    ack: (type, payload) => panel.ack(type, payload) || agentPanel.ack(type, payload),
     async handle(type, payload) {
       await legend.handle(type, payload);
       await panel.handle(type, payload);
+      await agentPanel.handle(type, payload);
     },
   };
   const runner = gate ? createPaymentRunner({

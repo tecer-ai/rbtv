@@ -24,11 +24,14 @@
 //   resolved it through the connector, then Approve and Refuse while it is pending (Refuse alone while it is
 //   unchecked), else its outcome.
 //   promptText(gate, row) → that message's text. The agent's own description shows only as a labelled note.
+// isOwner(config, payload) → whether an interaction comes from config.slack.ownerUserId within config.slack.team; the
+//   agent panel checks the owner with it too.
 // interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action
 //   time; null when the payload has neither.
 // ACTION, VIEW — the action ids and the view callback ids.
 
 const { parseAmount, canonicalAmount, settingsProblem, unchecked, PIN_RE, PERIODS, MAX_LIMIT_CENTS } = require('./payments.js');
+const { plain, section, context, esc, modal } = require('./blocks.js');
 
 const ACTION = Object.freeze({ approve: 'payments_approve', refuse: 'payments_refuse', settings: 'payments_settings' });
 const VIEW = Object.freeze({
@@ -57,15 +60,6 @@ function clock(zone, withDay) {
     }));
   }
   return FORMATS.get(key);
-}
-
-const plain = (text) => ({ type: 'plain_text', text: String(text).slice(0, 150) });
-const section = (text) => ({ type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 3000) } });
-const context = (text) => ({ type: 'context', elements: [{ type: 'mrkdwn', text: String(text).slice(0, 3000) }] });
-
-// Text an agent or a bank supplied, shown as mrkdwn: no link, mention or markup of its own.
-function esc(value) {
-  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function receiptLink(url) {
@@ -154,18 +148,6 @@ function promptBlocks(gate, row) {
 
 function promptText(gate, row) {
   return `Payment request ${row.id} from ${row.agent}: ${gate.money(row.amount_cents)} to ${label(row)} (${row.state})`;
-}
-
-function modal(callbackId, title, blocks, { submit = null, close = 'Close', metadata = '' } = {}) {
-  return {
-    type: 'modal',
-    callback_id: callbackId,
-    title: plain(title),
-    close: plain(close),
-    ...(submit ? { submit: plain(submit) } : {}),
-    ...(metadata ? { private_metadata: metadata } : {}),
-    blocks,
-  };
 }
 
 function textInput(blockId, label, { optional = false, initial = null, hint = null, max = 12 } = {}) {
@@ -337,13 +319,16 @@ function pinError(gate, check) {
 
 const errors = (fields) => ({ response_action: 'errors', errors: fields });
 
+// Whether an interaction comes from the owner: the payload's user is config.slack.ownerUserId within config.slack.team.
+// A slash command carries user_id and team_id; a button or a form carries user.id and user.team_id or team.id.
+function isOwner(config, payload) {
+  const user = payload.user_id || payload.user?.id;
+  const team = payload.team_id || payload.team?.id || payload.user?.team_id;
+  return Boolean(user && user === config.slack.ownerUserId && team && team === config.slack.team);
+}
+
 function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {} } = {}) {
-  function isOwner(payload) {
-    const cfg = config();
-    const user = payload.user_id || payload.user?.id;
-    const team = payload.team_id || payload.team?.id || payload.user?.team_id;
-    return Boolean(user && user === cfg.slack.ownerUserId && team && team === cfg.slack.team);
-  }
+  const ownerSent = (payload) => isOwner(config(), payload);
 
   function note(fields) {
     try { log({ event: 'payments', ...fields }); } catch { /* the panel never fails on a log */ }
@@ -352,13 +337,13 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
   function ack(type, payload = {}) {
     if (type === 'slash_commands') {
       if (payload.command !== '/payments') return null;
-      if (!isOwner(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };
+      if (!ownerSent(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };
       return gate() ? null : { text: NOT_SET_UP };
     }
     if (type !== 'interactive' || payload.type !== 'view_submission') return null;
     const view = payload.view || {};
     if (!FORMS.includes(view.callback_id)) return null;
-    if (!isOwner(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });
+    if (!ownerSent(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });
     if (!gate()) return errors({ [PIN_BLOCK]: NOT_SET_UP });
     const problems = formProblems(view);
     return problems ? errors(problems) : { response_action: 'update', view: checkingView() };
@@ -366,7 +351,7 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
 
   async function slash(payload) {
     if (payload.command !== '/payments') return;
-    if (!isOwner(payload)) {
+    if (!ownerSent(payload)) {
       note({ action: 'refused', who: payload.user_id || null, what: '/payments' });
       return;
     }
@@ -383,7 +368,7 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
     const tell = async (text) => {
       if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });
     };
-    if (!isOwner(payload)) {
+    if (!ownerSent(payload)) {
       note({ action: 'refused', who: payload.user?.id || null, what: act.action_id, id: act.value || null });
       await tell('Only the owner can approve or refuse payments. Nothing changed.');
       return;
@@ -445,7 +430,7 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
   async function submit(payload) {
     const view = payload.view || {};
     if (!FORMS.includes(view.callback_id)) return;
-    if (!isOwner(payload)) {
+    if (!ownerSent(payload)) {
       note({ action: 'refused', who: payload.user?.id || null, what: view.callback_id });
       return;
     }
@@ -539,4 +524,4 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
   return { ack, handle };
 }
 
-module.exports = { createPaymentPanel, promptBlocks, promptText, interactionKey, ACTION, VIEW, PIN_BLOCK };
+module.exports = { createPaymentPanel, isOwner, promptBlocks, promptText, interactionKey, ACTION, VIEW, PIN_BLOCK };
